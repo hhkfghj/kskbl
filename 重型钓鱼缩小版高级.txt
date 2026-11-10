@@ -121,6 +121,7 @@ RhythmHumanizer = false, -- 真人模式 (10-35ms 随机反应延迟)
     HideGameUI = false, -- 隐藏游戏UI
     
     AntiAFK = true, -- 防挂机
+    MemoryLog = false, -- 内存日志（排查挂机闪退，每 5 分钟打印一次）
     AutoRejoin = false, -- 自动重连
     AutoExecuteOnJoin = false, -- 加入时自动执行
     UIKeybind = Enum.KeyCode.RightControl, -- UI快捷键
@@ -769,7 +770,7 @@ end)
 local seenChatLines = {}
 table.insert(activeConnections, task.spawn(function()
     while isRunning do
-        task.wait(0.6)
+        task.wait(1.2)
         if not isRunning then break end
         pcall(function()
             local pg = LocalPlayer:FindFirstChild("PlayerGui")
@@ -6036,8 +6037,8 @@ local function FindNPCDeep(substr)
     local function scan(container, depth)
         if depth > 4 then return nil end
         for _, n in ipairs(container:GetChildren()) do
-            local ok, name = pcall(function() return n.Name end)
-            if ok and type(name) == "string" and name:find(substr) then
+            local name = n.Name
+            if type(name) == "string" and name:find(substr) then
                 if n:IsA("Model") then
                     local ok2, pivot = pcall(function() return n:GetPivot() end)
                     if ok2 and pivot then return pivot.Position end
@@ -6187,6 +6188,8 @@ end))
 local lastNpcScan = 0
 table.insert(activeConnections, RunService.Heartbeat:Connect(function()
     if not isRunning then return end
+    -- 只在“神灵”页可见时扫描：挂机钓鱼时没必要每 5 秒把 Workspace 深度 4 扫两遍
+    if not (mainFrame and mainFrame.Visible and tabGod and tabGod.Visible) then return end
     local now = tick()
     if now - lastNpcScan < 5 then return end
     lastNpcScan = now
@@ -6777,6 +6780,7 @@ createCategoryHeader(tabPlayer, "防挂机与稳定性")
 local stabCard = createCardGroup(tabPlayer)
 createToggleRow(stabCard, "防挂机", "防止Roblox 20分钟空闲断开", Config.AntiAFK, function(v) Config.AntiAFK = v end)
 createToggleRow(stabCard, "被踢自动重连", "自动重新连接到服务器", Config.AutoRejoin, function(v) Config.AutoRejoin = v end)
+createToggleRow(stabCard, "内存日志", "每 5 分钟把内存/缓存数量打印到控制台（排查闪退）", Config.MemoryLog, function(v) Config.MemoryLog = v end)
 
 createCategoryHeader(tabProfiles, "配置文件管理")
 local profCard = createCardGroup(tabProfiles)
@@ -7176,8 +7180,18 @@ HeavyweightFakeDisplaySetup = function(tabProfiles)
     pcall(ApplyFakeTexts)
     task.spawn(function()
         while isRunning do
-            task.wait(0.1)
-            pcall(ApplyFakeTexts)
+            local anyFake = false
+            for _, k in ipairs(FAKE_SETTING_KEYS) do
+                local v = Config[k]
+                if v ~= nil and v ~= "" then anyFake = true; break end
+            end
+            if anyFake or next(fakeRestoreRecords) then
+                task.wait(0.1)
+                pcall(ApplyFakeTexts)
+            else
+                -- 没开伪装时降频，减少挂机时的无意义分配
+                task.wait(1.0)
+            end
         end
     end)
 end
@@ -7294,7 +7308,7 @@ table.insert(activeConnections, RunService.Heartbeat:Connect(function(dt)
                 if Config.AnchorBar then
                     local barFrame = fUI:FindFirstChild("BarFrame")
                     if barFrame and barFrame:FindFirstChild("Bar") then
-                        barFrame.Bar:TweenPosition(UDim2.new(0.5, 0, 0.5, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Linear, 0, true)
+                        -- 直接置中，避免每帧创建一个 Tween 对象（长时间钓鱼时的 GC 压力）
                         barFrame.Bar.Position = UDim2.new(0.5, 0, 0.5, 0)
                     end
                 end
@@ -8524,9 +8538,24 @@ task.spawn(function()
     end
 end)
 
--- 主渲染循环：更新所有 ESP 与鱼圈
+-- 主渲染循环：更新所有 ESP 与鱼圈（10Hz 节流，避免每帧扫描造成手机内存/CPU 压力）
+local lastRingUpdate = 0
 table.insert(activeConnections, RunService.RenderStepped:Connect(function()
     if not isRunning then return end
+    local ringNow = tick()
+    if ringNow - lastRingUpdate < 0.1 then return end
+    lastRingUpdate = ringNow
+
+    -- 不在钓鱼流程、也没开滤镜/ESP 时直接跳过本帧：低端机上避免无意义的每帧扫描
+    local fChar = LocalPlayer.Character
+    local fFishing = fChar and (fChar:GetAttribute("Fishing") == true or fChar:GetAttribute("Minigame") == true)
+    local fFishId = LocalPlayer:GetAttribute("FishID")
+    local fNeedRing = Config.FishRedRing and (fFishing or (fFishId ~= nil and fFishId ~= ""))
+    if not (Config.Fullbright or Config.NoFog or next(activeESP) or fNeedRing) then
+        if fishRingAdornment.Visible then fishRingAdornment.Visible = false end
+        if fishRingText.Visible then fishRingText.Visible = false end
+        return
+    end
 
     -- 全亮 / 去雾处理
     if Config.Fullbright then
@@ -8803,5 +8832,41 @@ table.insert(activeConnections, UserInputService.InputBegan:Connect(function(inp
         UnloadScript()
     end
 end))
+
+-- ============================================================
+-- 内存日志（排查挂机闪退）：开启后每 5 分钟打印一次
+-- 输出示例：[MEM] gc=12345KB client=420.5MB esp=0 chat=12 notif=1
+-- ============================================================
+task.spawn(function()
+    while isRunning do
+        task.wait(300)
+        if not isRunning then break end
+        if Config.MemoryLog then
+            pcall(function()
+                local function countMap(t)
+                    local n = 0
+                    if type(t) == "table" then for _ in pairs(t) do n = n + 1 end end
+                    return n
+                end
+
+                local gcText = "?"
+                local okGc, gc = pcall(function() return gcinfo() end)
+                if okGc and gc then gcText = tostring(gc) end
+
+                local mbText = "?"
+                local okMb, mb = pcall(function()
+                    return game:GetService("Stats"):GetTotalMemoryUsageMb()
+                end)
+                if okMb and mb then mbText = string.format("%.1f", mb) end
+
+                local notifN = 0
+                pcall(function() notifN = #notifContainer:GetChildren() end)
+
+                print(string.format("[MEM] gc=%sKB client=%sMB esp=%d chat=%d notif=%d",
+                    tostring(gcText), tostring(mbText), countMap(activeESP), countMap(seenChatLines), notifN))
+            end)
+        end
+    end
+end)
 
 ShowNotification("IDENTICAL V1.0", "Heavyweight Fishing 脚本已就绪！按 R-CTRL 切换菜单。", "SUCCESS", 5)
