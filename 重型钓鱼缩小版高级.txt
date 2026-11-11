@@ -7947,78 +7947,60 @@ table.insert(activeConnections, UserInputService.JumpRequest:Connect(function()
 end))
 
 -- ============================================================
--- 防挂机（原生拦截版）
---  1) 吞掉 客户端 -> 服务端 的 AFK FireServer
---  2) 丢弃 服务端 -> 客户端 的 AFK 状态回传
---  3) 兜底：持续把 Data.<UserId>.AFK 压回 false，并清理按钮倒计时
--- 与上方已有的 __namecall 钩子链式叠加，不覆盖锚定条逻辑
+-- 防挂机（改用普通版策略：不再 hook __namecall）
+--  记录最后一次真实输入；空闲 ≥900s 就在 1s 巡检里模拟一次右键 + 空格
+--  状态挂在全局表 AFKGuard 上：主 chunk 的 local 已接近 Luau 上限，不新增顶层 local
 -- ============================================================
 do
-    local myPlayer   = Players.LocalPlayer
-    local AFKEvent   = Events and (Events:FindFirstChild("AFK") or Events:WaitForChild("AFK", 5))
-    local DataFolder = ReplicatedStorage:FindFirstChild("Data")
-
-    -- 1) 拦截客户端 -> 服务端 的挂机请求
-    if AFKEvent and newcclosure and getnamecallmethod then
-        local prevNamecall
-        local function afkHook(self, ...)
-            if getnamecallmethod() == "FireServer" and self == AFKEvent and (not Config or Config.AntiAFK) then
-                return nil -- 吞掉挂机请求
-            end
-            return prevNamecall(self, ...)
-        end
-
-        local installed = false
-        if hookmetamethod then
-            -- 优先 hookmetamethod：自动串到脚本上方已有的 __namecall 钩子上
-            installed = pcall(function()
-                prevNamecall = hookmetamethod(game, "__namecall", newcclosure(afkHook))
-            end) and type(prevNamecall) == "function"
-        end
-        if not installed and getrawmetatable and setreadonly then
-            -- 没有 hookmetamethod 的注入器退回 getrawmetatable 方案
-            installed = pcall(function()
-                local mt = getrawmetatable(game)
-                prevNamecall = mt and mt.__namecall
-                if type(prevNamecall) ~= "function" then return false end
-                setreadonly(mt, false)
-                mt.__namecall = newcclosure(afkHook)
-                setreadonly(mt, true)
-                return true
-            end)
-        end
-    end
-
-    -- 2) 拦截服务端 -> 客户端 的挂机状态回传（不处理，直接丢弃）
-    if AFKEvent then
-        pcall(function()
-            table.insert(activeConnections, AFKEvent.OnClientEvent:Connect(function() end))
-        end)
-    end
-
-    -- 3) 兜底：持续把 AFK 标记压回 false，并清理按钮上的倒计时
-    table.insert(activeConnections, task.spawn(function()
-        while isRunning and task.wait(0.5) do
-            if Config.AntiAFK then
+    AFKGuard = {
+        last = tick(),
+        -- 模拟一次空格（优先 keypress/keyrelease，其次 VirtualInputManager，最后 Humanoid:ChangeState）
+        SimulateSpaceKey = function()
+            if keypress and keyrelease then
                 pcall(function()
-                    if not DataFolder then DataFolder = ReplicatedStorage:FindFirstChild("Data") end
-                    local myData  = DataFolder and DataFolder:FindFirstChild(tostring(myPlayer.UserId))
-                    local afkFlag = myData and myData:FindFirstChild("AFK")
-                    if afkFlag and afkFlag:IsA("BoolValue") and afkFlag.Value then
-                        afkFlag.Value = false
-                    end
-
-                    -- 清掉按钮上的倒计时显示
-                    local gui     = myPlayer:FindFirstChild("PlayerGui")
-                    local mainGui = gui and gui:FindFirstChild("MainGui")
-                    local btn     = mainGui and mainGui:FindFirstChild("Button")
-                    local afkBtn  = btn and btn:FindFirstChild("AFK")
-                    local timeLbl = afkBtn and afkBtn:FindFirstChild("Time")
-                    if timeLbl and timeLbl:IsA("TextLabel") and timeLbl.Text ~= "" then
-                        timeLbl.Text = ""
-                    end
+                    keypress(Enum.KeyCode.Space)
+                    task.wait(0.05)
+                    keyrelease(Enum.KeyCode.Space)
                 end)
+                return
             end
+            if VirtualInputManager then
+                pcall(function()
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+                    task.wait(0.05)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+                end)
+                return
+            end
+            pcall(function()
+                local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+            end)
+        end,
+        -- 模拟一次右键（优先 VirtualUser，其次 Humanoid:ChangeState）
+        SimulateRightClick = function()
+            if VirtualUser then
+                pcall(function()
+                    VirtualUser:CaptureController()
+                    VirtualUser:ClickButton2(Vector2.new(0, 0))
+                end)
+                return
+            end
+            pcall(function()
+                local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+            end)
+        end,
+    }
+
+    table.insert(activeConnections, UserInputService.InputBegan:Connect(function(_, gpe)
+        if not gpe then AFKGuard.last = tick() end
+    end))
+    table.insert(activeConnections, UserInputService.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch
+            or input.UserInputType == Enum.UserInputType.Gamepad1 then
+            AFKGuard.last = tick()
         end
     end))
 end
@@ -8036,6 +8018,14 @@ table.insert(activeConnections, task.spawn(function()
     while isRunning do
         task.wait(1)
         if not isRunning then break end
+
+        -- ① 防挂机：空闲 ≥900s 模拟一次右键 + 空格（与普通版一致）
+        if Config.AntiAFK and AFKGuard and (tick() - AFKGuard.last >= 900) then
+            AFKGuard.SimulateRightClick()
+            task.wait(0.2)
+            AFKGuard.SimulateSpaceKey()
+            AFKGuard.last = tick()
+        end
 
         -- HP 进度条卡死检测
         if Config.AntiAFK then
