@@ -1,0 +1,8862 @@
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+if getgenv and getgenv().IdenticalHeavyweightFishingUnload then
+    pcall(getgenv().IdenticalHeavyweightFishingUnload)
+end
+
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
+local Lighting = game:GetService("Lighting")
+local CoreGui = game:GetService("CoreGui")
+
+local VirtualUser
+pcall(function() VirtualUser = game:GetService("VirtualUser") end)
+
+local VirtualInputManager
+pcall(function() VirtualInputManager = game:GetService("VirtualInputManager") end)
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+local isRunning = true
+local activeConnections = {}
+local cleanUpInstances = {}
+
+local Events = ReplicatedStorage:WaitForChild("Events", 10)
+
+local Config = {
+    AutoCast = false, -- 自动抛竿
+    CastDelay = 1.0, -- 抛竿延迟
+    CastPower = 100, -- 抛竿力度
+    AnchorBar = true, -- 锚定条(小游戏)
+    AutoSlam = true, -- 自动猛击
+    AutoCharge = true, -- 自动充能
+    InstantCatch = true, -- 瞬间捕捉
+    AutoSkills = false, -- 自动技能
+    SelectedSkill = "One-Strike Heaven Gate", -- 选择的技能
+    
+    AutoEquipBestBait = false, -- 自动装备最佳鱼饵
+    AutoEquipBestRod = false, -- 自动装备最佳鱼竿
+    AutoEquipBestOrb = false, -- 自动装备最佳宝珠
+    Loadout1_Rod = "Wooden Rod", -- 方案1鱼竿
+    Loadout1_Bait = "Basic Bait", -- 方案1鱼饵
+    Loadout2_Rod = "Wooden Rod", -- 方案2鱼竿
+    Loadout2_Bait = "Basic Bait", -- 方案2鱼饵
+    
+AutoSell = false, -- 自动卖鱼
+SellInterval = 30, -- 卖鱼间隔
+AutoFavouriteFish = false, -- 自动收藏鱼（总开关）
+-- 多选收藏目标：键 = 游戏内真实物品名（区分大小写，须与游戏内 Name 完全一致）
+FavouriteFishNames = {
+    ["Black Tortoise Bloodline"] = false,
+    ["Vermilion Birdblood"] = false,
+    ["Wraith Orca"] = false,
+},
+MaterialFarming = false, -- 材料收集模式
+
+OctoAutoMinigame = false, -- 章鱼自动小游戏
+RhythmAccuracy = 100, -- 节奏命中率 (70-100，92-96 最安全)
+RhythmHumanizer = false, -- 真人模式 (10-35ms 随机反应延迟)
+    AutoFarmBoss = false, -- 自动刷Boss
+    AutoFarmSecretBoss = false, -- 自动刷隐藏Boss
+    AutoEnzoMinigame = false, -- 自动恩佐小游戏(极小概率封号)
+    BossDifficulty = "简单", -- Boss难度(简单/困难)  
+    SelectedBoss = "Enzo", -- 选择的Boss
+    
+    AutoGodSpiritCheck = false, -- 自动检测神灵
+    AutoPrayGodSpirit = false, -- 自动祈祷神灵
+    AutoServerHopGod = false, -- 自动跳服务器找神灵
+    AutoServerHopMaoshan = false, -- 自动跳服务器找茅山
+    AutoServerHopTaoist = false, -- 自动跳服务器找道士
+    
+    AutoTicketQuest = false, -- 自动票据任务
+    TicketDifficulty = "Easy", -- 票据任务难度
+    AutoClaimDaily = false, -- 自动领取每日奖励
+    DailyClaimDelay = 0.5, -- 每日奖励领取延迟
+    
+    AutoCraftBait = false, -- 自动制作鱼饵
+    CraftBaitName = "Nameless Bait", -- 制作鱼饵名称
+    CraftAmount = 1, -- 制作数量
+    AutoBuyBait = false, -- 自动购买鱼饵
+    BuyBaitName = "Ancestral Bait", -- 购买鱼饵名称
+    BuyBaitAmount = 5, -- 购买数量
+    BuyBaitThreshold = 10, -- 购买阈值
+    BuyBaitDelay = 1.0, -- 购买延迟
+    AutoGiveFishToDumbGuy = false,  -- 自动把鱼给傻子
+    GiveFishDelay = 0.06,           -- 每步操作延迟(秒)
+    GiveFishInterval = 1.2,         -- 每轮完整流程间隔(秒)
+    GiveFishMinCount = 100,         -- 背包最少鱼数量才运行
+    
+    AutoGacha = false, -- 自动扭蛋
+    GachaBanner = "Taiji Banner", -- 扭蛋卡池
+    GachaPullsPerAction = 1, -- 每次扭蛋次数
+    
+    WalkSpeedEnabled = false, -- 启用步行加速
+    WalkSpeedValue = 16, -- 步行速度值
+    FlyEnabled = false, -- 启用飞行
+    FlySpeed = 50, -- 飞行速度
+    InfiniteJump = false, -- 无限跳跃
+    WalkOnWater = false, -- 水上行走
+    Noclip = false, -- 穿墙
+    
+    ESP_GodSpirit = false, -- 神灵ESP
+    ESP_SecretRod = false, -- 秘密鱼竿ESP
+    ESP_Boats = false, -- 船只ESP
+    ESP_Maoshan = false, -- 茅山ESP
+    ESP_Taoist = false, -- 道士ESP
+    ESP_Boss = false, -- Boss ESP
+    ESP_Players = false, -- 玩家ESP
+    FishRedRing = true, -- 鱼红色光圈
+    ShowFishWeightRing = false,  -- 在红圈上显示重量 & 突变
+    HideOverheadNames = false,   -- 隐藏玩家默认名称
+    NoFog = false, -- 去除雾霾
+    Fullbright = false, -- 全亮
+    PerformanceMode = false, -- 性能模式
+    HideGameUI = false, -- 隐藏游戏UI
+    
+    AntiAFK = true, -- 防挂机
+    MemoryLog = false, -- 内存日志（排查挂机闪退，每 5 分钟打印一次）
+    AutoRejoin = false, -- 自动重连
+    AutoExecuteOnJoin = false, -- 加入时自动执行
+    UIKeybind = Enum.KeyCode.RightControl, -- UI快捷键
+    StopKeybind = Enum.KeyCode.End, -- 停止快捷键
+    ActiveProfile = "default", -- 当前配置文件
+    AutoLoadProfile = true, -- 自动加载配置文件
+    WindowSize = "手机", -- 窗口大小（手机/电脑）
+    AutoFourBeastsFarm = false, -- 自动四圣兽跳服（对话文本检测）
+
+    -- ⚔️ 智能技能连招（Smart Combos）
+    SmartComboEnabled = false,
+    FishHpThreshold = 500,
+    QuickCatchSkill = "V",
+    OpenerSkill = "Z",
+    OpenerMaxCount = 1,
+    LoopSkills = "Z, X, V",
+    LoopStrictOrder = true,
+    EmergencyHealSkill = "V",
+    EmergencyHealHp = 40,
+    SkillEffectDelay = 0.3,
+    SmartEffectAutoDetect = true,
+
+    -- 🎯 定向钓鱼（新增；必须定义在 Config 表内，LoadProfile 才会回填）
+    AutoFilterFish          = false, -- 总开关
+    FilterTargetFish        = {},    -- 普通鱼池（外层，所有模式生效）
+    FilterTargetSpecialFish = {},    -- 旧版特殊鱼池（仅首次注入时迁移到「特殊组合 1」）
+    FilterTargetWeather     = {},    -- 旧版天气白名单（仅首次迁移）
+    FilterTargetIsland      = {},    -- 旧版岛屿白名单（仅首次迁移）
+    FilterSpecialGroups     = {},    -- 特殊组合列表（弹窗新建/改名/简介/启停；每个含 fish/weather/island）
+
+    -- 🎭 伪装 / 本地显示修改（只覆盖游戏原生 UI 的 TextLabel.Text，绝不修改任何 Value 实际值）
+    FakeExpBonus     = nil,   -- 伪装 EXP 加成（字符串或数字，nil=不伪装）
+    FakeId           = nil,   -- 伪装编号（字符串，nil=原文本）
+    FakeLevel        = nil,   -- 伪装等级完整文本（字符串，如 "Level: 999 [99999/99999]"，nil=原文本）
+    FakeCrystal      = nil,   -- 伪装钻石（数字，nil=原文本）
+    FakeEssenceOrb   = nil,   -- 伪装升级石（数字，nil=原文本）
+    FakeTicket       = nil,   -- 伪装票据（数字，nil=原文本）
+    FakeCash         = nil,   -- 伪装金钱（数字，nil=原文本）
+}
+
+if hookmetamethod and newcclosure then
+    local fmRemote = Events and Events:FindFirstChild("FishingMinigame")
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if (self == fmRemote or (typeof(self) == "Instance" and self.Name == "FishingMinigame")) and method == "FireServer" and not checkcaller() then
+            if isRunning and Config and Config.AnchorBar then
+                local args = {...}
+                local action = tostring(args[1])
+                if action == "Out of bar" or action == "Out of bar (overpull)" or action:find("Out of bar") then
+                    return oldNamecall(self, "In bar", unpack(args, 2))
+                end
+            end
+        end
+        return oldNamecall(self, ...)
+    end))
+end
+
+local PROFILE_DIR = "Identical/HeavyweightFishing"
+
+local function EnsureProfileDir()
+    if makefolder then
+        pcall(function()
+            if not isfolder("Identical") then makefolder("Identical") end
+            if not isfolder(PROFILE_DIR) then makefolder(PROFILE_DIR) end
+        end)
+    end
+end
+
+local function SaveProfile(name)
+    EnsureProfileDir()
+    local path = PROFILE_DIR .. "/" .. (name or Config.ActiveProfile) .. ".json"
+    local data = {}
+    for k, v in pairs(Config) do
+        if typeof(v) == "EnumItem" then
+            data[k] = {__enum = tostring(v)}
+        else
+            data[k] = v
+        end
+    end
+    local ok, encoded = pcall(function() return HttpService:JSONEncode(data) end)
+    if ok and writefile then
+        pcall(function() writefile(path, encoded) end)
+        return true
+    end
+    return false
+end
+
+local function LoadProfile(name)
+    local path = PROFILE_DIR .. "/" .. (name or Config.ActiveProfile) .. ".json"
+    -- 伪装字段默认值是 nil（表示“不伪装”）；下面的回填条件原本只放行默认值非 nil 的键，
+    -- 这里对伪装字段单独放行，确保重新注入脚本后 TextBox 与伪装状态能正确回填。
+    local nilableFakeKeys = {
+        FakeExpBonus = true,
+        FakeId = true,
+        FakeLevel = true,
+        FakeCrystal = true,
+        FakeEssenceOrb = true,
+        FakeTicket = true,
+        FakeCash = true,
+    }
+    if readfile then
+        local ok, content = pcall(function() return readfile(path) end)
+        if ok and content and #content > 0 then
+            local decOk, decoded = pcall(function() return HttpService:JSONDecode(content) end)
+            if decOk and type(decoded) == "table" then
+                for k, v in pairs(decoded) do
+                    if type(v) == "table" and v.__enum then
+                        local enumType, enumName = v.__enum:match("Enum%.(%w+)%.(%w+)")
+                        if enumType and enumName and Enum[enumType] and Enum[enumType][enumName] then
+                            Config[k] = Enum[enumType][enumName]
+                        end
+                    elseif Config[k] ~= nil or nilableFakeKeys[k] then
+                        Config[k] = v
+                    end
+                end
+                return true
+            end
+        end
+    end
+    return false
+end
+
+if Config.AutoLoadProfile then pcall(LoadProfile, "default") end
+
+-- ============================================================
+-- 🐉 四圣兽模块前向声明 + 自动重启标记恢复
+-- ============================================================
+local fourBeastsState
+
+do
+    if getgenv and getgenv().AutoFourBeastsOnJoin then
+        Config.AutoFourBeastsFarm = true
+        getgenv().AutoFourBeastsOnJoin = nil
+    end
+    if readfile then
+        local ok, flag = pcall(readfile, "fourbeasts_autostart.txt")
+        if ok and flag == "1" then
+            Config.AutoFourBeastsFarm = true
+        end
+    end
+end
+
+-- ============================================================
+-- 🔁 跳服状态（移植自源码 secretBossState：记忆文件恢复 + 已访问服务器规避）
+-- 说明：这里只用全局表，不新增顶层 local（主 chunk 的局部变量已接近 Luau 上限）
+-- ============================================================
+HopState = {
+    isNormalHopping = false,
+    hopInFlight = false,
+    hopDeadline = 0,
+    failCount = 0,
+    lastFailAt = 0,
+    visited = {},
+    npcHopVisited = {},
+    lastAttemptedJob = nil,
+    pendingNPCHopData = nil,
+    hooksInitialized = false,
+    ui = {},
+    cachedGod = nil,
+    lastGodScan = 0,
+    warnedNoQueue = false,
+    warnedNoScanner = false,
+}
+
+do
+    -- 刚跳到新服务器：恢复“继续寻找 NPC”的状态（与源码 HeavyweightFishing_NPCHop.json 一致）
+    if isfile and readfile and isfile("HeavyweightFishing_NPCHop.json") then
+        local ok, content = pcall(function() return readfile("HeavyweightFishing_NPCHop.json") end)
+        if ok and content and #content > 0 then
+            local decOk, hopData = pcall(function() return HttpService:JSONDecode(content) end)
+            if decOk and type(hopData) == "table" and hopData.Active then
+                HopState.pendingNPCHopData = hopData
+                if hopData.Taoist then Config.AutoServerHopTaoist = true end
+                if hopData.Maoshan then Config.AutoServerHopMaoshan = true end
+                if hopData.God then Config.AutoServerHopGod = true end
+                if type(hopData.Visited) == "table" then
+                    HopState.npcHopVisited = hopData.Visited
+                end
+            end
+        end
+    end
+end
+
+
+-- ============================================================
+-- 🌦️ 天气跳服状态（记忆恢复；读取 / UI / 循环在“服务器跳转引擎”卡片附近定义）
+-- 天气路径：PlayerGui.MainGui.Info.Info.Weather.Value（如 "Weather: Clear"）
+-- ============================================================
+WeatherHop = {
+    active = false,
+    target = "任意天气（除晴朗外）",
+    lastHopAt = 0,
+    warnedNoQueue = false,
+    warnedUnreadable = false,
+    ui = {},
+    displayMap = {},
+}
+
+do
+    if isfile and readfile and isfile("HeavyweightFishing_WeatherHop.json") then
+        local ok, content = pcall(function() return readfile("HeavyweightFishing_WeatherHop.json") end)
+        if ok and content and #content > 0 then
+            local decOk, hopData = pcall(function() return HttpService:JSONDecode(content) end)
+            if decOk and type(hopData) == "table" and hopData.Active then
+                WeatherHop.active = true
+                if type(hopData.TargetWeather) == "string" and hopData.TargetWeather ~= "" then
+                    WeatherHop.target = hopData.TargetWeather
+                end
+                if type(hopData.Visited) == "table" then
+                    for _, jid in ipairs(hopData.Visited) do
+                        if type(jid) == "string" and jid ~= "" and not table.find(HopState.visited, jid) then
+                            table.insert(HopState.visited, jid)
+                        end
+                    end
+                    while #HopState.visited > 80 do table.remove(HopState.visited, 1) end
+                end
+            end
+        end
+    end
+end
+
+
+-- ============================================================
+-- 窗口度量系统（手机/电脑 两套尺寸，可热切换）
+-- ============================================================
+local M = {}
+local tracked = {}
+
+local function T(inst, prop, key)
+    if not inst or not prop then return end
+    tracked[#tracked + 1] = {inst = inst, prop = prop, key = key}
+    if M[key] ~= nil then inst[prop] = M[key] end
+end
+
+local function ApplyWindowSize()
+    local pc = (Config.WindowSize == "电脑")
+
+    -- 主窗口
+    M.winSize      = UDim2.new(0, pc and 700 or 480, 0, pc and 480 or 360)
+    M.winPos       = UDim2.new(0.5, pc and -350 or -240, 0.5, pc and -240 or -180)
+
+    -- 标题栏
+    M.titleBarH    = pc and 38 or 30
+    M.brandW       = pc and 150 or 110
+    M.brandX       = pc and 36 or 28
+    M.brandF       = pc and 14 or 11
+    M.subW         = pc and 200 or 150
+    M.subX         = pc and 118 or 95
+    M.subF         = pc and 10 or 8
+    M.winCtrlW     = pc and 60 or 48
+    M.winCtrlX     = pc and -65 or -52
+    M.ctrlBtnS     = pc and 24 or 20
+    M.ctrlBtnX1    = pc and 4 or 2
+    M.ctrlBtnX2    = pc and 32 or 26
+    M.ctrlBtnY     = pc and -12 or -10
+    M.ctrlBtnF     = pc and 11 or 9
+
+    -- Body / 侧栏 / 搜索框 / 导航
+    M.bodyH        = pc and -62 or -50
+    M.bodyY        = pc and 38 or 30
+    M.sideW        = pc and 140 or 100
+    M.searchW      = pc and -16 or -12
+    M.searchH      = pc and 26 or 22
+    M.searchX      = pc and 8 or 6
+    M.searchY      = pc and 8 or 6
+    M.searchF      = pc and 11 or 9
+    M.searchPadL   = pc and 8 or 6
+    M.navH         = pc and -44 or -36
+    M.navY         = pc and 42 or 34
+    M.navPadTop    = pc and 6 or 4
+    M.navPadLR     = pc and 8 or 6
+    M.navListPad   = pc and 4 or 3
+    M.navBtnH      = pc and 30 or 24
+    M.navBtnF      = pc and 12 or 10
+    M.navBtnPadL   = pc and 12 or 9
+    M.pillH        = pc and 16 or 12
+    M.pillX        = pc and -9 or -7
+    M.pillY        = pc and -8 or -6
+
+    -- 内容区
+    M.contentW     = pc and -140 or -100
+    M.contentX     = pc and 140 or 100
+    M.pagePadTop   = pc and 12 or 8
+    M.pagePadBot   = pc and 16 or 10
+    M.pagePadLR    = pc and 14 or 8
+    M.pageListPad  = pc and 10 or 8
+
+    -- 页脚
+    M.footH        = pc and 24 or 20
+    M.footY        = pc and -24 or -20
+    M.footBrandW   = pc and 260 or 180
+    M.footBrandX   = pc and 12 or 8
+    M.footBrandF   = pc and 10 or 8
+    M.footKeyW     = pc and 280 or 200
+    M.footKeyX     = pc and -292 or -208
+    M.footKeyF     = pc and 10 or 8
+
+    -- 分类标题
+    M.catH         = pc and 22 or 18
+    M.catF         = pc and 11 or 9
+
+    -- 基础行
+    M.rowH         = pc and 42 or 34
+    M.rowPadLR     = pc and 10 or 8
+    M.rowTFW       = pc and -190 or -150
+    M.rowTitleH    = pc and 18 or 14
+    M.rowTitleY    = pc and 4 or 3
+    M.rowTitleF    = pc and 12 or 10
+    M.rowDescH     = pc and 14 or 12
+    M.rowDescY     = pc and 22 or 18
+    M.rowDescF     = pc and 10 or 8
+
+    -- 开关
+    M.tglW         = pc and 40 or 32
+    M.tglH         = pc and 20 or 16
+    M.tglY         = pc and -10 or -8
+    M.knobS        = pc and 14 or 12
+    M.knobOn       = UDim2.new(1, pc and -17 or -14, 0.5, pc and -7 or -6)
+    M.knobOff      = UDim2.new(0, pc and 3 or 2, 0.5, pc and -7 or -6)
+
+    -- 滑块
+    M.sldCW        = pc and 180 or 140
+    M.sldCH        = pc and 24 or 20
+    M.sldCX        = pc and -180 or -140
+    M.sldCY        = pc and -12 or -10
+    M.sldValW      = pc and 68 or 52
+    M.sldValF      = pc and 11 or 9
+    M.sldTW        = pc and -74 or -56
+    M.sldTH        = pc and 6 or 5
+    M.sldTY        = pc and -3 or -2.5
+
+    -- 下拉
+    M.ddRowH       = pc and 42 or 34
+    M.ddHdrH       = pc and 42 or 34
+    M.ddTFW        = pc and -145 or -110
+    M.ddBtnW       = pc and 130 or 100
+    M.ddBtnH       = pc and 24 or 20
+    M.ddBtnX       = pc and -130 or -100
+    M.ddBtnY       = pc and -12 or -10
+    M.ddBtnF       = pc and 11 or 9
+    M.ddTitleH     = pc and 18 or 14
+    M.ddTitleY     = pc and 4 or 3
+    M.ddTitleF     = pc and 12 or 10
+    M.ddDescH      = pc and 14 or 12
+    M.ddDescY      = pc and 22 or 18
+    M.ddDescF      = pc and 10 or 8
+    M.ddOptH       = pc and 26 or 22
+    M.ddOptF       = pc and 11 or 9
+    M.ddOptPadL    = pc and 10 or 8
+    M.ddOptPadLR   = pc and 10 or 8
+    M.ddOptPadBot  = pc and 8 or 6
+
+    -- 按钮
+    M.btnW         = pc and 90 or 70
+    M.btnH         = pc and 24 or 20
+    M.btnX         = pc and -90 or -70
+    M.btnY         = pc and -12 or -10
+    M.btnF         = pc and 11 or 9
+
+    -- 信息行
+    M.infoValW     = pc and 140 or 110
+    M.infoValF     = pc and 11 or 9
+
+    -- 通知
+    M.notifCW      = pc and 300 or 240
+    M.notifCX      = pc and -315 or -250
+    M.notifCY      = pc and 20 or 15
+    M.notifHOFF    = pc and -40 or -30
+    M.notifLPad    = pc and 8 or 6
+    M.notifCH      = pc and 60 or 48
+    M.notifCardH   = pc and 60 or 48
+    M.notifTitleH  = pc and 20 or 16
+    M.notifTitleY  = pc and 6 or 5
+    M.notifTitleF  = pc and 13 or 10
+    M.notifTitleX  = pc and 10 or 8
+    M.notifTitleP  = pc and -20 or -16
+    M.notifMsgH    = pc and 26 or 20
+    M.notifMsgY    = pc and 26 or 21
+    M.notifMsgF    = pc and 11 or 9
+    M.notifMsgX    = pc and 10 or 8
+    M.notifMsgP    = pc and -20 or -16
+
+    -- 悬浮月亮图标
+    M.fcSize       = pc and 44 or 36
+    M.fcPos        = pc and 20 or 12
+    M.fcIconS      = pc and 24 or 20
+    M.fcCutS       = pc and 20 or 17
+    M.fcCutX       = pc and 6 or 5
+    M.fcCutY       = pc and -3 or -3
+
+    M.titleBarSize  = UDim2.new(1, 0, 0, M.titleBarH)
+    M.brandSize     = UDim2.new(0, M.brandW, 1, 0)
+    M.brandPos      = UDim2.new(0, M.brandX, 0, 0)
+    M.subSize       = UDim2.new(0, M.subW, 1, 0)
+    M.subPos        = UDim2.new(0, M.subX, 0, 0)
+    M.winCtrlSize   = UDim2.new(0, M.winCtrlW, 1, 0)
+    M.winCtrlPos    = UDim2.new(1, M.winCtrlX, 0, 0)
+    M.ctrlBtnSize   = UDim2.new(0, M.ctrlBtnS, 0, M.ctrlBtnS)
+    M.ctrlBtnPos1   = UDim2.new(0, M.ctrlBtnX1, 0.5, M.ctrlBtnY)
+    M.ctrlBtnPos2   = UDim2.new(0, M.ctrlBtnX2, 0.5, M.ctrlBtnY)
+
+    M.bodySize      = UDim2.new(1, 0, 1, M.bodyH)
+    M.bodyPos       = UDim2.new(0, 0, 0, M.bodyY)
+    M.sidebarSize   = UDim2.new(0, M.sideW, 1, 0)
+    M.searchSize    = UDim2.new(1, M.searchW, 0, M.searchH)
+    M.searchPos     = UDim2.new(0, M.searchX, 0, M.searchY)
+    M.navSize       = UDim2.new(1, 0, 1, M.navH)
+    M.navPos        = UDim2.new(0, 0, 0, M.navY)
+    M.contentSize   = UDim2.new(1, M.contentW, 1, 0)
+    M.contentPos    = UDim2.new(0, M.contentX, 0, 0)
+
+    M.footerSize    = UDim2.new(1, 0, 0, M.footH)
+    M.footerPos     = UDim2.new(0, 0, 1, M.footY)
+    M.footBrandSize = UDim2.new(0, M.footBrandW, 1, 0)
+    M.footBrandPos  = UDim2.new(0, M.footBrandX, 0, 0)
+    M.footKeySize   = UDim2.new(0, M.footKeyW, 1, 0)
+    M.footKeyPos    = UDim2.new(1, M.footKeyX, 0, 0)
+
+    M.catHdrSize    = UDim2.new(1, 0, 0, M.catH)
+    M.rowSize       = UDim2.new(1, 0, 0, M.rowH)
+    M.rowTFSize     = UDim2.new(1, M.rowTFW, 1, 0)
+    M.rowTitleSize  = UDim2.new(1, 0, 0, M.rowTitleH)
+    M.rowTitlePos   = UDim2.new(0, 0, 0, M.rowTitleY)
+    M.rowDescSize   = UDim2.new(1, 0, 0, M.rowDescH)
+    M.rowDescPos    = UDim2.new(0, 0, 0, M.rowDescY)
+
+    M.tglSize       = UDim2.new(0, M.tglW, 0, M.tglH)
+    M.tglPos        = UDim2.new(1, -M.tglW, 0.5, M.tglY)
+    M.knobSize      = UDim2.new(0, M.knobS, 0, M.knobS)
+
+    M.sldCSize      = UDim2.new(0, M.sldCW, 0, M.sldCH)
+    M.sldCPos       = UDim2.new(1, M.sldCX, 0.5, M.sldCY)
+    M.sldValSize    = UDim2.new(0, M.sldValW, 1, 0)
+    M.sldTSize      = UDim2.new(1, M.sldTW, 0, M.sldTH)
+    M.sldTPos       = UDim2.new(0, 0, 0.5, M.sldTY)
+
+    M.ddRowSize     = UDim2.new(1, 0, 0, M.ddRowH)
+    M.ddHdrSize     = UDim2.new(1, 0, 0, M.ddHdrH)
+    M.ddTFSize      = UDim2.new(1, M.ddTFW, 1, 0)
+    M.ddBtnSize     = UDim2.new(0, M.ddBtnW, 0, M.ddBtnH)
+    M.ddBtnPos      = UDim2.new(1, M.ddBtnX, 0.5, M.ddBtnY)
+    M.ddTitleSize   = UDim2.new(1, 0, 0, M.ddTitleH)
+    M.ddTitlePos    = UDim2.new(0, 0, 0, M.ddTitleY)
+    M.ddDescSize    = UDim2.new(1, 0, 0, M.ddDescH)
+    M.ddDescPos     = UDim2.new(0, 0, 0, M.ddDescY)
+    M.ddOptSize     = UDim2.new(1, 0, 0, M.ddOptH)
+
+    M.btnSize       = UDim2.new(0, M.btnW, 0, M.btnH)
+    M.btnPos        = UDim2.new(1, M.btnX, 0.5, M.btnY)
+
+    M.infoValSize   = UDim2.new(0, M.infoValW, 1, 0)
+    M.infoValPos    = UDim2.new(1, -M.infoValW, 0, 0)
+
+    M.navBtnSize    = UDim2.new(1, 0, 0, M.navBtnH)
+    M.pillSize      = UDim2.new(0, 2, 0, M.pillH)
+    M.pillPos       = UDim2.new(0, M.pillX, 0.5, M.pillY)
+end
+
+local function RefreshTracked()
+    for _, e in ipairs(tracked) do
+        if M[e.key] ~= nil then
+            pcall(function() e.inst[e.prop] = M[e.key] end)
+        end
+    end
+end
+
+ApplyWindowSize()
+
+local Colors = {
+    Background       = Color3.fromRGB(15, 12, 22),
+    SidebarBg        = Color3.fromRGB(11, 9, 17),
+    BorderPurple     = Color3.fromRGB(168, 85, 247),
+    BorderSubtle     = Color3.fromRGB(45, 33, 66),
+    Divider          = Color3.fromRGB(36, 26, 54),
+    PurplePrimary    = Color3.fromRGB(216, 160, 255),
+    PurpleAccent     = Color3.fromRGB(168, 85, 247),
+    PurpleMuted      = Color3.fromRGB(147, 112, 196),
+    PurpleDark       = Color3.fromRGB(72, 45, 107),
+    PurpleGlow       = Color3.fromRGB(192, 132, 252),
+    RowNormal        = Color3.fromRGB(20, 16, 30),
+    RowHover         = Color3.fromRGB(30, 22, 46),
+    ControlBg        = Color3.fromRGB(28, 20, 44),
+    InputBg          = Color3.fromRGB(18, 14, 26),
+    TextWhite        = Color3.fromRGB(245, 243, 255),
+    TextSubtle       = Color3.fromRGB(168, 150, 200),
+    TextMuted        = Color3.fromRGB(110, 95, 138),
+    AccentGreen      = Color3.fromRGB(52, 211, 153),
+    AccentRed        = Color3.fromRGB(248, 113, 113),
+    AccentOrange     = Color3.fromRGB(251, 146, 60),
+    AccentYellow     = Color3.fromRGB(250, 204, 21),
+    AccentBlue       = Color3.fromRGB(96, 165, 250),
+    DropdownSelected = Color3.fromRGB(36, 26, 56)
+}
+
+local function getGuiParent()
+    if gethui then
+        local ok, h = pcall(gethui)
+        if ok and h then return h end
+    end
+    local ok, gui = pcall(function() return CoreGui end)
+    if ok and gui then return gui end
+    return LocalPlayer:WaitForChild("PlayerGui", 5) or LocalPlayer:FindFirstChild("PlayerGui")
+end
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "IdenticalHeavyweightFishing"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = getGuiParent()
+table.insert(cleanUpInstances, screenGui)
+
+local function UnloadScript()
+    isRunning = false
+    -- 卸载/重注入前先还原伪装显示文本（不清除已保存的伪装配置）
+    if getgenv then
+        local restoreFake = getgenv().IdenticalHeavyweightFakeRestore
+        if type(restoreFake) == "function" then pcall(restoreFake) end
+        getgenv().IdenticalHeavyweightFakeRestore = nil
+    end
+    for _, conn in ipairs(activeConnections) do pcall(function() conn:Disconnect() end) end
+    table.clear(activeConnections)
+    
+    for _, inst in ipairs(cleanUpInstances) do
+        pcall(function()
+            if inst and inst.Parent then inst:Destroy() end
+        end)
+    end
+    table.clear(cleanUpInstances)
+    
+    pcall(function()
+        local leftover = Workspace:FindFirstChild("IdenticalESP")
+        if leftover then leftover:Destroy() end
+    end)
+
+    pcall(function()
+        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum.WalkSpeed = 16 end
+        Lighting.FogEnd = 100000
+        Lighting.Brightness = 2
+        Lighting.ClockTime = 14
+        Lighting.Ambient = Color3.fromRGB(70, 70, 70)
+        Lighting.OutdoorAmbient = Color3.fromRGB(70, 70, 70)
+        Lighting.GlobalShadows = true
+    end)
+    
+    if getgenv then getgenv().IdenticalHeavyweightFishingUnload = nil end
+end
+
+if getgenv then getgenv().IdenticalHeavyweightFishingUnload = UnloadScript end
+
+local notifContainer = Instance.new("Frame")
+notifContainer.Name = "Notifications"
+notifContainer.Size = UDim2.new(0, M.notifCW, 1, M.notifHOFF)
+notifContainer.Position = UDim2.new(1, M.notifCX, 0, M.notifCY)
+notifContainer.BackgroundTransparency = 1
+notifContainer.ZIndex = 1000
+notifContainer.Parent = screenGui
+table.insert(cleanUpInstances, notifContainer)
+
+local notifLayout = Instance.new("UIListLayout")
+notifLayout.SortOrder = Enum.SortOrder.LayoutOrder
+notifLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+notifLayout.Padding = UDim.new(0, 6)
+notifLayout.Parent = notifContainer
+
+local function ShowNotification(title, text, notifType, duration)
+    if not isRunning then return end
+    duration = duration or 3.5
+    local accentColor = Colors.PurpleAccent
+    if notifType == "SUCCESS" then accentColor = Colors.AccentGreen
+    elseif notifType == "WARN" then accentColor = Colors.AccentYellow
+    elseif notifType == "ERROR" then accentColor = Colors.AccentRed end
+
+    local card = Instance.new("Frame")
+card.Size = UDim2.new(1, 0, 0, M.notifCardH)
+card.BackgroundColor3 = Colors.Background
+card.BackgroundTransparency = 0.05
+card.BorderSizePixel = 0
+card.ClipsDescendants = true
+card.Parent = notifContainer
+
+local stroke = Instance.new("UIStroke"); stroke.Color = accentColor; stroke.Thickness = 1; stroke.Parent = card
+local corner = Instance.new("UICorner"); corner.CornerRadius = UDim.new(0, 5); corner.Parent = card
+local topBar = Instance.new("Frame"); topBar.Size = UDim2.new(1, 0, 0, M.notifTitleH); topBar.BackgroundTransparency = 1; topBar.Position = UDim2.new(0, M.notifTitleX, 0, M.notifTitleY); topBar.Parent = card
+local tLabel = Instance.new("TextLabel"); tLabel.Size = UDim2.new(1, M.notifTitleP, 1, 0); tLabel.BackgroundTransparency = 1; tLabel.Font = Enum.Font.GothamBold; tLabel.Text = title; tLabel.TextColor3 = Colors.PurplePrimary; tLabel.TextSize = M.notifTitleF; tLabel.TextXAlignment = Enum.TextXAlignment.Left; tLabel.Parent = topBar
+local mLabel = Instance.new("TextLabel"); mLabel.Size = UDim2.new(1, M.notifMsgP, 0, M.notifMsgH); mLabel.Position = UDim2.new(0, M.notifMsgX, 0, M.notifMsgY); mLabel.BackgroundTransparency = 1; mLabel.Font = Enum.Font.Gotham; mLabel.Text = text; mLabel.TextColor3 = Colors.TextSubtle; mLabel.TextSize = M.notifMsgF; mLabel.TextXAlignment = Enum.TextXAlignment.Left; mLabel.TextWrapped = true; mLabel.Parent = card
+    
+    task.delay(duration, function()
+        if card and card.Parent then
+            TweenService:Create(card, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundTransparency = 1, Position = card.Position + UDim2.new(1, 20, 0, 0)
+            }):Play()
+            task.wait(0.35); card:Destroy()
+        end
+    end)
+end
+
+local ChatWatchers = {
+    { pattern = "maoshan has just arrived", title = "茅山来了", msg = "Maoshan has just arrived! (茅山已到达!)", type = "SUCCESS", dur = 6 },
+    { pattern = "maoshan has left",        title = "茅山走了", msg = "Maoshan has left! (茅山已离开!)",      type = "WARN",    dur = 6 },
+    { pattern = "taoist has just arrived", title = "道士来了", msg = "Taoist has just arrived! (道士已到达!)", type = "SUCCESS", dur = 6 },
+    { pattern = "taoist has left",         title = "道士走了", msg = "Taoist has left! (道士已离开!)",      type = "WARN",    dur = 6 },
+}
+
+local function HandleChatMessage(text)
+    if not isRunning then return end
+    if type(text) ~= "string" or #text == 0 then return end
+    local lower = text:lower()
+    for _, w in ipairs(ChatWatchers) do
+        if lower:find(w.pattern, 1, true) then
+            ShowNotification(w.title, w.msg, w.type, w.dur)
+        end
+    end
+end
+
+pcall(function()
+    local TextChatService = game:GetService("TextChatService")
+    if TextChatService then
+        table.insert(activeConnections, TextChatService.MessageReceived:Connect(function(message)
+            pcall(function()
+                if message and message.Text then
+                    HandleChatMessage(message.Text)
+                end
+            end)
+        end))
+    end
+end)
+
+pcall(function()
+    local DefaultChat = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+    if DefaultChat then
+        local OnMessageDone = DefaultChat:FindFirstChild("OnMessageDoneFiltering")
+        if OnMessageDone then
+            table.insert(activeConnections, OnMessageDone.OnClientEvent:Connect(function(data)
+                pcall(function()
+                    if type(data) == "table" and data.Message then
+                        HandleChatMessage(tostring(data.Message))
+                    end
+                end)
+            end))
+        end
+    end
+end)
+
+local seenChatLines = {}
+table.insert(activeConnections, task.spawn(function()
+    while isRunning do
+        task.wait(1.2)
+        if not isRunning then break end
+        pcall(function()
+            local pg = LocalPlayer:FindFirstChild("PlayerGui")
+            if not pg then return end
+
+            local chatWindow = pg:FindFirstChild("Chat")
+            if chatWindow then
+                for _, d in ipairs(chatWindow:GetDescendants()) do
+                    if d:IsA("TextLabel") or d:IsA("TextButton") then
+                        local t = d.Text
+                        if type(t) == "string" and #t > 0 and not seenChatLines[t] then
+                            local lower = t:lower()
+                            for _, w in ipairs(ChatWatchers) do
+                                if lower:find(w.pattern, 1, true) then
+                                    seenChatLines[t] = true
+                                    HandleChatMessage(t)
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            local legacy = pg:FindFirstChild("Chat") or pg:FindFirstChild("LegacyChat")
+            if legacy and legacy ~= chatWindow then
+                local container = legacy:FindFirstChild("ChatChannelParentFrame") 
+                    or legacy:FindFirstChild("ChatChannelParentFrameFake") 
+                    or legacy
+                if container then
+                    for _, d in ipairs(container:GetDescendants()) do
+                        if d:IsA("TextLabel") then
+                            local t = d.Text
+                            if type(t) == "string" and #t > 0 and not seenChatLines[t] then
+                                local lower = t:lower()
+                                for _, w in ipairs(ChatWatchers) do
+                                    if lower:find(w.pattern, 1, true) then
+                                        seenChatLines[t] = true
+                                        HandleChatMessage(t)
+                                        break
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            local count = 0
+            for _ in pairs(seenChatLines) do count = count + 1 end
+            if count > 500 then table.clear(seenChatLines) end
+        end)
+    end
+end))
+
+local ToggleUiVisibility
+
+-- ============================================================
+-- 通用拖拽（鼠标 + 触屏，边界吸附，防误触点击）
+-- ============================================================
+local function MakeDraggable(target, dragArea)
+    dragArea = dragArea or target
+    local state = {
+        dragging = false,
+        moved = false,
+        startInput = nil,
+        startPos = nil,
+        inputType = nil,
+        MOVE_THRESHOLD = 4
+    }
+
+    local function clampToScreen()
+        local vp = (Camera and Camera.ViewportSize) or Vector2.new(1920, 1080)
+        local abs = target.AbsolutePosition
+        local size = target.AbsoluteSize
+        local minX = -size.X + 60
+        local maxX = vp.X - 60
+        local minY = 0
+        local maxY = vp.Y - 40
+        local nx = math.clamp(abs.X, minX, maxX)
+        local ny = math.clamp(abs.Y, minY, maxY)
+        if nx ~= abs.X or ny ~= abs.Y then
+            target.Position = UDim2.new(0, nx, 0, ny)
+        end
+    end
+
+    dragArea.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            state.dragging = true
+            state.moved = false
+            state.startInput = input.Position
+            state.startPos = target.Position
+            state.inputType = input.UserInputType
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End
+                or input.UserInputState == Enum.UserInputState.Cancel then
+                    if state.inputType == input.UserInputType then
+                        state.dragging = false
+                        state.inputType = nil
+                    end
+                end
+            end)
+        end
+    end)
+
+    table.insert(activeConnections, UserInputService.InputChanged:Connect(function(input)
+        if not state.dragging then return end
+        if state.inputType and input.UserInputType ~= state.inputType then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+            local delta = input.Position - state.startInput
+            if math.abs(delta.X) > state.MOVE_THRESHOLD
+            or math.abs(delta.Y) > state.MOVE_THRESHOLD then
+                state.moved = true
+            end
+            target.Position = UDim2.new(
+                state.startPos.X.Scale, state.startPos.X.Offset + delta.X,
+                state.startPos.Y.Scale, state.startPos.Y.Offset + delta.Y
+            )
+        end
+    end))
+
+    return state
+end
+
+local floatingCrescent = Instance.new("ImageButton")
+floatingCrescent.Name = "FloatingCrescent"
+floatingCrescent.Size = UDim2.new(0, M.fcSize, 0, M.fcSize)
+floatingCrescent.Position = UDim2.new(0, M.fcPos, 0, M.fcPos)
+floatingCrescent.BackgroundColor3 = Colors.Background
+floatingCrescent.BorderSizePixel = 0
+floatingCrescent.Visible = false
+floatingCrescent.ZIndex = 1000
+floatingCrescent.Parent = screenGui
+table.insert(cleanUpInstances, floatingCrescent)
+
+do
+    local fcCorner = Instance.new("UICorner"); fcCorner.CornerRadius = UDim.new(1, 0); fcCorner.Parent = floatingCrescent
+    local fcStroke = Instance.new("UIStroke"); fcStroke.Color = Colors.PurpleAccent; fcStroke.Thickness = 1.2; fcStroke.Parent = floatingCrescent
+    local fcIconContainer = Instance.new("Frame"); fcIconContainer.Size = UDim2.new(0, M.fcIconS, 0, M.fcIconS); fcIconContainer.Position = UDim2.new(0.5, -M.fcIconS/2, 0.5, -M.fcIconS/2); fcIconContainer.BackgroundTransparency = 1; fcIconContainer.ClipsDescendants = true; fcIconContainer.Parent = floatingCrescent
+local fcOuter = Instance.new("Frame"); fcOuter.Size = UDim2.new(0, M.fcIconS, 0, M.fcIconS); fcOuter.BackgroundColor3 = Colors.PurplePrimary; fcOuter.BorderSizePixel = 0; fcOuter.Parent = fcIconContainer
+local fcOC = Instance.new("UICorner"); fcOC.CornerRadius = UDim.new(1, 0); fcOC.Parent = fcOuter
+local fcCutout = Instance.new("Frame"); fcCutout.Size = UDim2.new(0, M.fcCutS, 0, M.fcCutS); fcCutout.Position = UDim2.new(0, M.fcCutX, 0, M.fcCutY); fcCutout.BackgroundColor3 = Colors.Background; fcCutout.BorderSizePixel = 0; fcCutout.Parent = fcOuter
+    local fcCC = Instance.new("UICorner"); fcCC.CornerRadius = UDim.new(1, 0); fcCC.Parent = fcCutout
+
+    local fcDragState = MakeDraggable(floatingCrescent)
+    floatingCrescent.MouseEnter:Connect(function()
+        TweenService:Create(floatingCrescent, TweenInfo.new(0.15), {BackgroundColor3 = Colors.PurpleDark}):Play()
+        TweenService:Create(fcStroke, TweenInfo.new(0.15), {Color = Colors.PurpleGlow}):Play()
+        fcCutout.BackgroundColor3 = Colors.PurpleDark
+    end)
+    floatingCrescent.MouseLeave:Connect(function()
+        TweenService:Create(floatingCrescent, TweenInfo.new(0.15), {BackgroundColor3 = Colors.Background}):Play()
+        TweenService:Create(fcStroke, TweenInfo.new(0.15), {Color = Colors.PurpleAccent}):Play()
+        fcCutout.BackgroundColor3 = Colors.Background
+    end)
+    floatingCrescent.MouseButton1Click:Connect(function()
+    if fcDragState.moved then
+        fcDragState.moved = false
+        return
+    end
+    if ToggleUiVisibility then ToggleUiVisibility() end
+end)
+end
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = M.winSize
+mainFrame.Position = M.winPos
+mainFrame.BackgroundColor3 = Colors.Background
+mainFrame.BorderSizePixel = 0
+mainFrame.ClipsDescendants = true
+mainFrame.Parent = screenGui
+table.insert(cleanUpInstances, mainFrame)
+T(mainFrame, "Size", "winSize")
+T(mainFrame, "Position", "winPos")
+
+do
+    local mc = Instance.new("UICorner"); mc.CornerRadius = UDim.new(0, 6); mc.Parent = mainFrame
+    local ms = Instance.new("UIStroke"); ms.Color = Colors.BorderPurple; ms.Thickness = 1.2; ms.Parent = mainFrame
+end
+
+local titleBar = Instance.new("Frame")
+titleBar.Name = "TitleBar"
+titleBar.Size = UDim2.new(1, 0, 0, M.titleBarH)
+titleBar.BackgroundColor3 = Colors.SidebarBg
+titleBar.BorderSizePixel = 0
+titleBar.Parent = mainFrame
+
+do
+    local tc = Instance.new("UICorner"); tc.CornerRadius = UDim.new(0, 6); tc.Parent = titleBar
+    local tbf = Instance.new("Frame"); tbf.Size = UDim2.new(1, 0, 0, 8); tbf.Position = UDim2.new(0, 0, 1, -8); tbf.BackgroundColor3 = Colors.SidebarBg; tbf.BorderSizePixel = 0; tbf.Parent = titleBar
+    local tdiv = Instance.new("Frame"); tdiv.Size = UDim2.new(1, 0, 0, 1); tdiv.Position = UDim2.new(0, 0, 1, -1); tdiv.BackgroundColor3 = Colors.Divider; tdiv.BorderSizePixel = 0; tdiv.Parent = titleBar
+end
+
+do
+    local cc = Instance.new("Frame"); cc.Size = UDim2.new(0, 13, 0, 13); cc.Position = UDim2.new(0, 10, 0.5, -6.5); cc.BackgroundTransparency = 1; cc.ClipsDescendants = true; cc.Parent = titleBar
+    local co = Instance.new("Frame"); co.Size = UDim2.new(0, 13, 0, 13); co.BackgroundColor3 = Colors.PurpleAccent; co.BorderSizePixel = 0; co.Parent = cc
+    Instance.new("UICorner", co).CornerRadius = UDim.new(1, 0)
+    local cut = Instance.new("Frame"); cut.Size = UDim2.new(0, 11, 0, 11); cut.Position = UDim2.new(0, 3.5, 0, -1.5); cut.BackgroundColor3 = Colors.SidebarBg; cut.BorderSizePixel = 0; cut.Parent = co
+    Instance.new("UICorner", cut).CornerRadius = UDim.new(1, 0)
+end
+
+local brandTitle = Instance.new("TextLabel")
+brandTitle.Size = UDim2.new(0, M.brandW, 1, 0); brandTitle.Position = UDim2.new(0, M.brandX, 0, 0)
+brandTitle.BackgroundTransparency = 1; brandTitle.Font = Enum.Font.GothamBold
+brandTitle.Text = "IDENTICAL"; brandTitle.TextColor3 = Colors.PurplePrimary
+brandTitle.TextSize = M.brandF; brandTitle.TextXAlignment = Enum.TextXAlignment.Left
+brandTitle.Parent = titleBar
+
+local gameSubtitle = Instance.new("TextLabel")
+gameSubtitle.Size = UDim2.new(0, M.subW, 1, 0); gameSubtitle.Position = UDim2.new(0, M.subX, 0, 0)
+gameSubtitle.BackgroundTransparency = 1; gameSubtitle.Font = Enum.Font.Gotham
+gameSubtitle.Text = "HEAVYWEIGHT FISHING V1.0"; gameSubtitle.TextColor3 = Colors.PurpleMuted
+gameSubtitle.TextSize = M.subF; gameSubtitle.TextXAlignment = Enum.TextXAlignment.Left
+gameSubtitle.Parent = titleBar
+
+local winControls = Instance.new("Frame"); winControls.Size = UDim2.new(0, M.winCtrlW, 1, 0); winControls.Position = UDim2.new(1, M.winCtrlX, 0, 0); winControls.BackgroundTransparency = 1; winControls.Parent = titleBar
+local minBtn = Instance.new("TextButton"); minBtn.Size = UDim2.new(0, M.ctrlBtnS, 0, M.ctrlBtnS); minBtn.Position = UDim2.new(0, M.ctrlBtnX1, 0.5, M.ctrlBtnY); minBtn.BackgroundColor3 = Colors.ControlBg; minBtn.Font = Enum.Font.GothamBold; minBtn.Text = "[-]"; minBtn.TextColor3 = Colors.PurplePrimary; minBtn.TextSize = M.ctrlBtnF; minBtn.BorderSizePixel = 0; minBtn.Parent = winControls
+Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 3)
+local closeBtn = Instance.new("TextButton"); closeBtn.Size = UDim2.new(0, M.ctrlBtnS, 0, M.ctrlBtnS); closeBtn.Position = UDim2.new(0, M.ctrlBtnX2, 0.5, M.ctrlBtnY); closeBtn.BackgroundColor3 = Colors.ControlBg; closeBtn.Font = Enum.Font.GothamBold; closeBtn.Text = "[X]"; closeBtn.TextColor3 = Colors.AccentRed; closeBtn.TextSize = M.ctrlBtnF; closeBtn.BorderSizePixel = 0; closeBtn.Parent = winControls
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 3)
+
+-- 注册到响应系统
+T(titleBar, "Size", "titleBarSize")
+T(brandTitle, "Size", "brandSize"); T(brandTitle, "Position", "brandPos"); T(brandTitle, "TextSize", "brandF")
+T(gameSubtitle, "Size", "subSize"); T(gameSubtitle, "Position", "subPos"); T(gameSubtitle, "TextSize", "subF")
+T(winControls, "Size", "winCtrlSize"); T(winControls, "Position", "winCtrlPos")
+T(minBtn, "Size", "ctrlBtnSize"); T(minBtn, "Position", "ctrlBtnPos1"); T(minBtn, "TextSize", "ctrlBtnF")
+T(closeBtn, "Size", "ctrlBtnSize"); T(closeBtn, "Position", "ctrlBtnPos2"); T(closeBtn, "TextSize", "ctrlBtnF")
+
+MakeDraggable(mainFrame, titleBar)
+
+local bodyFrame = Instance.new("Frame"); bodyFrame.Name = "Body"; bodyFrame.Size = UDim2.new(1, 0, 1, M.bodyH); bodyFrame.Position = UDim2.new(0, 0, 0, M.bodyY); bodyFrame.BackgroundTransparency = 1; bodyFrame.Parent = mainFrame
+T(bodyFrame, "Size", "bodySize"); T(bodyFrame, "Position", "bodyPos")
+
+local sidebar = Instance.new("Frame"); sidebar.Name = "Sidebar"; sidebar.Size = UDim2.new(0, M.sideW, 1, 0); sidebar.BackgroundColor3 = Colors.SidebarBg; sidebar.BorderSizePixel = 0; sidebar.Parent = bodyFrame
+T(sidebar, "Size", "sidebarSize")
+do local d = Instance.new("Frame"); d.Size = UDim2.new(0, 1, 1, 0); d.Position = UDim2.new(1, -1, 0, 0); d.BackgroundColor3 = Colors.Divider; d.BorderSizePixel = 0; d.Parent = sidebar end
+
+local searchBox = Instance.new("TextBox")
+searchBox.Name = "SearchBar"; searchBox.Size = UDim2.new(1, M.searchW, 0, M.searchH); searchBox.Position = UDim2.new(0, M.searchX, 0, M.searchY)
+searchBox.BackgroundColor3 = Colors.InputBg; searchBox.Font = Enum.Font.Gotham; searchBox.PlaceholderText = "搜索..."
+searchBox.PlaceholderColor3 = Colors.TextMuted; searchBox.Text = ""; searchBox.TextColor3 = Colors.TextWhite
+searchBox.TextSize = M.searchF; searchBox.TextXAlignment = Enum.TextXAlignment.Left; searchBox.BorderSizePixel = 0; searchBox.ClearTextOnFocus = false; searchBox.Parent = sidebar
+T(searchBox, "Size", "searchSize"); T(searchBox, "Position", "searchPos"); T(searchBox, "TextSize", "searchF")
+do local p = Instance.new("UIPadding"); p.PaddingLeft = UDim.new(0, M.searchPadL); p.Parent = searchBox end
+Instance.new("UICorner", searchBox).CornerRadius = UDim.new(0, 3)
+
+local rowSearchIndex = {}
+searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+    local q = searchBox.Text:lower()
+    for _, item in ipairs(rowSearchIndex) do
+        if q == "" or item.query:find(q, 1, true) then
+            item.frame.Visible = true
+        else
+            item.frame.Visible = false
+        end
+    end
+end)
+
+local navList = Instance.new("ScrollingFrame"); navList.Name = "NavList"; navList.Size = UDim2.new(1, 0, 1, M.navH); navList.Position = UDim2.new(0, 0, 0, M.navY); navList.BackgroundTransparency = 1; navList.BorderSizePixel = 0; navList.ScrollBarThickness = 2; navList.ScrollBarImageColor3 = Colors.BorderSubtle; navList.CanvasSize = UDim2.new(0, 0, 0, 0); navList.AutomaticCanvasSize = Enum.AutomaticSize.Y; navList.Parent = sidebar
+T(navList, "Size", "navSize"); T(navList, "Position", "navPos")
+do
+    local nl = Instance.new("UIListLayout"); nl.SortOrder = Enum.SortOrder.LayoutOrder; nl.Padding = UDim.new(0, M.navListPad); nl.Parent = navList
+    local np = Instance.new("UIPadding"); np.PaddingTop = UDim.new(0, M.navPadTop); np.PaddingLeft = UDim.new(0, M.navPadLR); np.PaddingRight = UDim.new(0, M.navPadLR); np.Parent = navList
+end
+
+local contentArea = Instance.new("Frame"); contentArea.Name = "ContentArea"; contentArea.Size = UDim2.new(1, M.contentW, 1, 0); contentArea.Position = UDim2.new(0, M.contentX, 0, 0); contentArea.BackgroundTransparency = 1; contentArea.Parent = bodyFrame
+T(contentArea, "Size", "contentSize"); T(contentArea, "Position", "contentPos")
+
+local tabFrames = {}
+local tabButtons = {}
+
+local function SwitchTab(tabName)
+    for name, frame in pairs(tabFrames) do frame.Visible = (name == tabName) end
+    for name, btn in pairs(tabButtons) do
+        if name == tabName then
+            TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundColor3 = Colors.PurpleDark, TextColor3 = Colors.TextWhite}):Play()
+            local pill = btn:FindFirstChild("ActivePill"); if pill then pill.Visible = true end
+        else
+            TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundColor3 = Colors.SidebarBg, TextColor3 = Colors.TextSubtle}):Play()
+            local pill = btn:FindFirstChild("ActivePill"); if pill then pill.Visible = false end
+        end
+    end
+end
+
+local function CreateTab(name)
+    local btn = Instance.new("TextButton"); btn.Name = "TabBtn_" .. name; btn.Size = UDim2.new(1, 0, 0, M.navBtnH); btn.BackgroundColor3 = Colors.SidebarBg; btn.Font = Enum.Font.GothamBold; btn.Text = name; btn.TextColor3 = Colors.TextSubtle; btn.TextSize = M.navBtnF; btn.TextXAlignment = Enum.TextXAlignment.Left; btn.BorderSizePixel = 0; btn.Parent = navList
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 3)
+    T(btn, "Size", "navBtnSize"); T(btn, "TextSize", "navBtnF")
+    do local p = Instance.new("UIPadding"); p.PaddingLeft = UDim.new(0, M.navBtnPadL); p.Parent = btn end
+    local pill = Instance.new("Frame"); pill.Name = "ActivePill"; pill.Size = UDim2.new(0, 2, 0, M.pillH); pill.Position = UDim2.new(0, M.pillX, 0.5, M.pillY); pill.BackgroundColor3 = Colors.PurpleAccent; pill.BorderSizePixel = 0; pill.Visible = false; pill.Parent = btn
+    Instance.new("UICorner", pill).CornerRadius = UDim.new(0, 1)
+    T(pill, "Size", "pillSize"); T(pill, "Position", "pillPos")
+    btn.MouseButton1Click:Connect(function() SwitchTab(name) end)
+
+    local page = Instance.new("ScrollingFrame"); page.Name = "TabPage_" .. name; page.Size = UDim2.new(1, 0, 1, 0); page.BackgroundTransparency = 1; page.BorderSizePixel = 0; page.ScrollBarThickness = 2; page.ScrollBarImageColor3 = Colors.BorderPurple; page.CanvasSize = UDim2.new(0, 0, 0, 0); page.AutomaticCanvasSize = Enum.AutomaticSize.Y; page.Visible = false; page.Parent = contentArea
+    do
+        local pl = Instance.new("UIListLayout"); pl.SortOrder = Enum.SortOrder.LayoutOrder; pl.Padding = UDim.new(0, M.pageListPad); pl.Parent = page
+        local pp = Instance.new("UIPadding"); pp.PaddingTop = UDim.new(0, M.pagePadTop); pp.PaddingBottom = UDim.new(0, M.pagePadBot); pp.PaddingLeft = UDim.new(0, M.pagePadLR); pp.PaddingRight = UDim.new(0, M.pagePadLR); pp.Parent = page
+    end
+    tabFrames[name] = page; tabButtons[name] = btn
+    return page
+end
+
+local footerBar = Instance.new("Frame"); footerBar.Name = "FooterBar"; footerBar.Size = UDim2.new(1, 0, 0, M.footH); footerBar.Position = UDim2.new(0, 0, 1, M.footY); footerBar.BackgroundColor3 = Colors.SidebarBg; footerBar.BorderSizePixel = 0; footerBar.Parent = mainFrame
+Instance.new("UICorner", footerBar).CornerRadius = UDim.new(0, 6)
+T(footerBar, "Size", "footerSize"); T(footerBar, "Position", "footerPos")
+do
+    local tf = Instance.new("Frame"); tf.Size = UDim2.new(1, 0, 0, 8); tf.BackgroundColor3 = Colors.SidebarBg; tf.BorderSizePixel = 0; tf.Parent = footerBar
+    local fd = Instance.new("Frame"); fd.Size = UDim2.new(1, 0, 0, 1); fd.BackgroundColor3 = Colors.Divider; fd.BorderSizePixel = 0; fd.Parent = footerBar
+end
+local footerBrand = Instance.new("TextLabel"); footerBrand.Size = UDim2.new(0, M.footBrandW, 1, 0); footerBrand.Position = UDim2.new(0, M.footBrandX, 0, 0); footerBrand.BackgroundTransparency = 1; footerBrand.Font = Enum.Font.Gotham; footerBrand.Text = "Heavyweight Fishing | V1.0"; footerBrand.TextColor3 = Colors.TextMuted; footerBrand.TextSize = M.footBrandF; footerBrand.TextXAlignment = Enum.TextXAlignment.Left; footerBrand.Parent = footerBar
+local footerKey = Instance.new("TextLabel"); footerKey.Size = UDim2.new(0, M.footKeyW, 1, 0); footerKey.Position = UDim2.new(1, M.footKeyX, 0, 0); footerKey.BackgroundTransparency = 1; footerKey.Font = Enum.Font.Gotham; footerKey.Text = "[R-CTRL] 菜单 | [END] 停止"; footerKey.TextColor3 = Colors.TextMuted; footerKey.TextSize = M.footKeyF; footerKey.TextXAlignment = Enum.TextXAlignment.Right; footerKey.Parent = footerBar
+T(footerBrand, "Size", "footBrandSize"); T(footerBrand, "Position", "footBrandPos"); T(footerBrand, "TextSize", "footBrandF")
+T(footerKey, "Size", "footKeySize"); T(footerKey, "Position", "footKeyPos"); T(footerKey, "TextSize", "footKeyF")
+
+ToggleUiVisibility = function()
+    mainFrame.Visible = not mainFrame.Visible
+    floatingCrescent.Visible = not mainFrame.Visible
+end
+
+minBtn.MouseButton1Click:Connect(ToggleUiVisibility)
+closeBtn.MouseButton1Click:Connect(UnloadScript)
+
+local function createCategoryHeader(parent, text)
+    local hdr = Instance.new("Frame"); hdr.Size = UDim2.new(1, 0, 0, M.catH); hdr.BackgroundTransparency = 1; hdr.Parent = parent
+    local lbl = Instance.new("TextLabel"); lbl.Size = UDim2.new(1, 0, 1, 0); lbl.BackgroundTransparency = 1; lbl.Font = Enum.Font.GothamBold; lbl.Text = string.upper(text); lbl.TextColor3 = Colors.PurplePrimary; lbl.TextSize = M.catF; lbl.TextXAlignment = Enum.TextXAlignment.Left; lbl.Parent = hdr
+    T(hdr, "Size", "catHdrSize"); T(lbl, "TextSize", "catF")
+    return hdr
+end
+
+local function createCardGroup(parent)
+    local group = Instance.new("Frame"); group.Size = UDim2.new(1, 0, 0, 0); group.AutomaticSize = Enum.AutomaticSize.Y; group.BackgroundColor3 = Colors.RowNormal; group.BorderSizePixel = 0; group.Parent = parent
+    local s = Instance.new("UIStroke"); s.Color = Colors.BorderSubtle; s.Thickness = 1; s.Parent = group
+    Instance.new("UICorner", group).CornerRadius = UDim.new(0, 5)
+    local l = Instance.new("UIListLayout"); l.SortOrder = Enum.SortOrder.LayoutOrder; l.Padding = UDim.new(0, 0); l.Parent = group
+    return group
+end
+
+local function createBaseRow(parent, labelText, descText, indexSearch)
+    local row = Instance.new("Frame"); row.Size = UDim2.new(1, 0, 0, M.rowH); row.BackgroundColor3 = Colors.RowNormal; row.BorderSizePixel = 0; row.Parent = parent
+    local pad = Instance.new("UIPadding"); pad.PaddingLeft = UDim.new(0, M.rowPadLR); pad.PaddingRight = UDim.new(0, M.rowPadLR); pad.Parent = row
+    local tf = Instance.new("Frame"); tf.Size = UDim2.new(1, M.rowTFW, 1, 0); tf.BackgroundTransparency = 1; tf.Parent = row
+    local tl = Instance.new("TextLabel"); tl.Size = UDim2.new(1, 0, 0, M.rowTitleH); tl.Position = UDim2.new(0, 0, 0, M.rowTitleY); tl.BackgroundTransparency = 1; tl.Font = Enum.Font.GothamBold; tl.Text = labelText; tl.TextColor3 = Colors.TextWhite; tl.TextSize = M.rowTitleF; tl.TextXAlignment = Enum.TextXAlignment.Left; tl.Parent = tf
+    local dl = Instance.new("TextLabel"); dl.Size = UDim2.new(1, 0, 0, M.rowDescH); dl.Position = UDim2.new(0, 0, 0, M.rowDescY); dl.BackgroundTransparency = 1; dl.Font = Enum.Font.Gotham; dl.Text = descText or ""; dl.TextColor3 = Colors.TextMuted; dl.TextSize = M.rowDescF; dl.TextXAlignment = Enum.TextXAlignment.Left; dl.Parent = tf
+    T(row, "Size", "rowSize"); T(tf, "Size", "rowTFSize")
+    T(tl, "Size", "rowTitleSize"); T(tl, "Position", "rowTitlePos"); T(tl, "TextSize", "rowTitleF")
+    T(dl, "Size", "rowDescSize"); T(dl, "Position", "rowDescPos"); T(dl, "TextSize", "rowDescF")
+    row.MouseEnter:Connect(function() TweenService:Create(row, TweenInfo.new(0.15), {BackgroundColor3 = Colors.RowHover}):Play() end)
+    row.MouseLeave:Connect(function() TweenService:Create(row, TweenInfo.new(0.15), {BackgroundColor3 = Colors.RowNormal}):Play() end)
+    if indexSearch ~= false then
+        table.insert(rowSearchIndex, {frame = row, query = (labelText .. " " .. (descText or "")):lower()})
+    end
+    return row
+end
+
+local function createToggleRow(parent, labelText, descText, initialVal, callback, indexSearch)
+    if type(initialVal) == "function" then
+        indexSearch = callback
+        callback = initialVal
+        initialVal = false
+    end
+    local row = createBaseRow(parent, labelText, descText, indexSearch)
+    local state = initialVal or false
+    local btn = Instance.new("TextButton"); btn.Size = UDim2.new(0, M.tglW, 0, M.tglH); btn.Position = UDim2.new(1, -M.tglW, 0.5, M.tglY); btn.BackgroundColor3 = state and Colors.PurpleAccent or Colors.ControlBg; btn.Text = ""; btn.BorderSizePixel = 0; btn.Parent = row
+Instance.new("UICorner", btn).CornerRadius = UDim.new(1, 0)
+local knob = Instance.new("Frame"); knob.Size = UDim2.new(0, M.knobS, 0, M.knobS); knob.Position = state and M.knobOn or M.knobOff; knob.BackgroundColor3 = Colors.TextWhite; knob.BorderSizePixel = 0; knob.Parent = btn
+Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+T(btn, "Size", "tglSize"); T(btn, "Position", "tglPos")
+T(knob, "Size", "knobSize")
+local function updateVisuals()
+    TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundColor3 = state and Colors.PurpleAccent or Colors.ControlBg}):Play()
+    TweenService:Create(knob, TweenInfo.new(0.15), {Position = state and M.knobOn or M.knobOff}):Play()
+end
+    btn.MouseButton1Click:Connect(function()
+        state = not state
+        updateVisuals()
+        if type(callback) == "function" then callback(state) end
+    end)
+    return {frame = row, Set = function(val) state = val; updateVisuals() end, Get = function() return state end}
+end
+
+local function createSliderRow(parent, labelText, descText, minVal, maxVal, initialVal, isFloat, suffix, callback, indexSearch)
+    local row = createBaseRow(parent, labelText, descText, indexSearch)
+    local currentVal = initialVal or minVal; suffix = suffix or ""
+    local container = Instance.new("Frame"); container.Size = UDim2.new(0, M.sldCW, 0, M.sldCH); container.Position = UDim2.new(1, M.sldCX, 0.5, M.sldCY); container.BackgroundTransparency = 1; container.Parent = row
+local valLabel = Instance.new("TextLabel"); valLabel.Size = UDim2.new(0, M.sldValW, 1, 0); valLabel.Position = UDim2.new(1, -M.sldValW, 0, 0); valLabel.BackgroundTransparency = 1; valLabel.Font = Enum.Font.GothamBold; valLabel.TextColor3 = Colors.PurplePrimary; valLabel.TextSize = M.sldValF; valLabel.TextXAlignment = Enum.TextXAlignment.Right; valLabel.Parent = container
+valLabel.Text = isFloat and string.format("%.2f", currentVal)..suffix or tostring(math.floor(currentVal))..suffix
+local track = Instance.new("Frame"); track.Size = UDim2.new(1, M.sldTW, 0, M.sldTH); track.Position = UDim2.new(0, 0, 0.5, M.sldTY); track.BackgroundColor3 = Colors.ControlBg; track.BorderSizePixel = 0; track.Parent = container
+T(container, "Size", "sldCSize"); T(container, "Position", "sldCPos")
+T(valLabel, "Size", "sldValSize"); T(valLabel, "TextSize", "sldValF")
+T(track, "Size", "sldTSize"); T(track, "Position", "sldTPos")
+    Instance.new("UICorner", track).CornerRadius = UDim.new(1, 0)
+    local pct = math.clamp((currentVal - minVal) / (maxVal - minVal), 0, 1)
+    local fill = Instance.new("Frame"); fill.Size = UDim2.new(pct, 0, 1, 0); fill.BackgroundColor3 = Colors.PurpleAccent; fill.BorderSizePixel = 0; fill.Parent = track
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+    local sliding = false
+    local function updateFromX(x)
+        local rel = math.clamp((x - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+        local val = minVal + (maxVal - minVal) * rel
+        if not isFloat then val = math.floor(val + 0.5) end
+        currentVal = val; fill.Size = UDim2.new(rel, 0, 1, 0)
+        valLabel.Text = isFloat and string.format("%.2f", val)..suffix or tostring(val)..suffix
+        if type(callback) == "function" then callback(val) end
+    end
+    track.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then sliding = true; updateFromX(input.Position.X) end end)
+    UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then sliding = false end end)
+    table.insert(activeConnections, UserInputService.InputChanged:Connect(function(input) if sliding and input.UserInputType == Enum.UserInputType.MouseMovement then updateFromX(input.Position.X) end end))
+    return {
+        frame = row,
+        Set = function(val)
+            currentVal = math.clamp(val, minVal, maxVal)
+            local p2 = (currentVal - minVal) / (maxVal - minVal)
+            fill.Size = UDim2.new(p2, 0, 1, 0)
+            valLabel.Text = isFloat and string.format("%.2f", currentVal)..suffix or tostring(math.floor(currentVal))..suffix
+        end
+    }
+end
+
+local function createDropdownRow(parent, labelText, descText, options, initialVal, callback, indexSearch)
+    if type(options) == "table" and type(initialVal) == "function" then
+        indexSearch = callback
+        callback = initialVal
+        initialVal = options[1]
+    end
+    local selected = initialVal or options[1]
+    local row = Instance.new("Frame"); row.Size = UDim2.new(1, 0, 0, M.ddRowH); row.AutomaticSize = Enum.AutomaticSize.Y; row.BackgroundColor3 = Colors.RowNormal; row.BorderSizePixel = 0; row.ClipsDescendants = true; row.Parent = parent
+local rl = Instance.new("UIListLayout"); rl.SortOrder = Enum.SortOrder.LayoutOrder; rl.Padding = UDim.new(0, M.navListPad); rl.Parent = row
+local header = Instance.new("Frame"); header.Size = UDim2.new(1, 0, 0, M.ddHdrH); header.BackgroundTransparency = 1; header.Parent = row
+local pad = Instance.new("UIPadding"); pad.PaddingLeft = UDim.new(0, M.rowPadLR); pad.PaddingRight = UDim.new(0, M.rowPadLR); pad.Parent = header
+local tf = Instance.new("Frame"); tf.Size = UDim2.new(1, M.ddTFW, 1, 0); tf.BackgroundTransparency = 1; tf.Parent = header
+local tl = Instance.new("TextLabel"); tl.Size = UDim2.new(1, 0, 0, M.ddTitleH); tl.Position = UDim2.new(0, 0, 0, M.ddTitleY); tl.BackgroundTransparency = 1; tl.Font = Enum.Font.GothamBold; tl.Text = labelText; tl.TextColor3 = Colors.TextWhite; tl.TextSize = M.ddTitleF; tl.TextXAlignment = Enum.TextXAlignment.Left; tl.Parent = tf
+local dl = Instance.new("TextLabel"); dl.Size = UDim2.new(1, 0, 0, M.ddDescH); dl.Position = UDim2.new(0, 0, 0, M.ddDescY); dl.BackgroundTransparency = 1; dl.Font = Enum.Font.Gotham; dl.Text = descText or ""; dl.TextColor3 = Colors.TextMuted; dl.TextSize = M.ddDescF; dl.TextXAlignment = Enum.TextXAlignment.Left; dl.Parent = tf
+local ddBtn = Instance.new("TextButton"); ddBtn.Size = UDim2.new(0, M.ddBtnW, 0, M.ddBtnH); ddBtn.Position = UDim2.new(1, M.ddBtnX, 0.5, M.ddBtnY); ddBtn.BackgroundColor3 = Colors.ControlBg; ddBtn.Font = Enum.Font.GothamBold; ddBtn.Text = tostring(selected) .. "  v"; ddBtn.TextColor3 = Colors.PurplePrimary; ddBtn.TextSize = M.ddBtnF; ddBtn.BorderSizePixel = 0; ddBtn.Parent = header
+Instance.new("UICorner", ddBtn).CornerRadius = UDim.new(0, 3)
+local optC = Instance.new("Frame"); optC.Size = UDim2.new(1, 0, 0, 0); optC.AutomaticSize = Enum.AutomaticSize.Y; optC.BackgroundTransparency = 1; optC.Visible = false; optC.Parent = row
+do local p = Instance.new("UIPadding"); p.PaddingLeft = UDim.new(0, M.ddOptPadLR); p.PaddingRight = UDim.new(0, M.ddOptPadLR); p.PaddingBottom = UDim.new(0, M.ddOptPadBot); p.Parent = optC end
+T(row, "Size", "ddRowSize"); T(header, "Size", "ddHdrSize"); T(tf, "Size", "ddTFSize")
+T(tl, "Size", "ddTitleSize"); T(tl, "Position", "ddTitlePos"); T(tl, "TextSize", "ddTitleF")
+T(dl, "Size", "ddDescSize"); T(dl, "Position", "ddDescPos"); T(dl, "TextSize", "ddDescF")
+T(ddBtn, "Size", "ddBtnSize"); T(ddBtn, "Position", "ddBtnPos"); T(ddBtn, "TextSize", "ddBtnF")
+    Instance.new("UIListLayout", optC).SortOrder = Enum.SortOrder.LayoutOrder
+    local optButtons = {}
+    local function populate(opts)
+        for _, c in ipairs(optC:GetChildren()) do if c:IsA("TextButton") then c:Destroy() end end
+        table.clear(optButtons)
+        for _, opt in ipairs(opts) do
+            local ob = Instance.new("TextButton"); ob.Size = UDim2.new(1, 0, 0, M.ddOptH); ob.BackgroundColor3 = (opt == selected) and Colors.DropdownSelected or Colors.InputBg; ob.Font = Enum.Font.Gotham; ob.Text = (opt == selected and "> " or "   ") .. tostring(opt); ob.TextColor3 = (opt == selected) and Colors.PurplePrimary or Colors.TextWhite; ob.TextSize = M.ddOptF; ob.TextXAlignment = Enum.TextXAlignment.Left; ob.BorderSizePixel = 0; ob.Parent = optC
+Instance.new("UICorner", ob).CornerRadius = UDim.new(0, 3)
+do local p = Instance.new("UIPadding"); p.PaddingLeft = UDim.new(0, M.ddOptPadL); p.Parent = ob end
+T(ob, "Size", "ddOptSize"); T(ob, "TextSize", "ddOptF")
+            optButtons[opt] = ob
+            ob.MouseEnter:Connect(function() if opt ~= selected then TweenService:Create(ob, TweenInfo.new(0.15), {BackgroundColor3 = Colors.RowHover}):Play() end end)
+            ob.MouseLeave:Connect(function() if opt ~= selected then TweenService:Create(ob, TweenInfo.new(0.15), {BackgroundColor3 = Colors.InputBg}):Play() end end)
+            ob.MouseButton1Click:Connect(function()
+                selected = opt; ddBtn.Text = tostring(opt) .. "  v"; optC.Visible = false
+                for oN, b in pairs(optButtons) do b.BackgroundColor3 = (oN == opt) and Colors.DropdownSelected or Colors.InputBg; b.TextColor3 = (oN == opt) and Colors.PurplePrimary or Colors.TextWhite; b.Text = (oN == opt and "> " or "   ") .. tostring(oN) end
+                if type(callback) == "function" then callback(opt) end
+            end)
+        end
+    end
+    populate(options)
+    ddBtn.MouseButton1Click:Connect(function() optC.Visible = not optC.Visible; ddBtn.Text = tostring(selected) .. (optC.Visible and "  ^" or "  v") end)
+    header.MouseEnter:Connect(function() TweenService:Create(row, TweenInfo.new(0.15), {BackgroundColor3 = Colors.RowHover}):Play() end)
+    header.MouseLeave:Connect(function() TweenService:Create(row, TweenInfo.new(0.15), {BackgroundColor3 = Colors.RowNormal}):Play() end)
+    if indexSearch ~= false then table.insert(rowSearchIndex, {frame = row, query = (labelText .. " " .. (descText or "")):lower()}) end
+    return {
+        frame = row,
+        Set = function(opt)
+            selected = opt; ddBtn.Text = tostring(opt) .. "  v"
+            for oN, b in pairs(optButtons) do b.BackgroundColor3 = (oN == opt) and Colors.DropdownSelected or Colors.InputBg; b.TextColor3 = (oN == opt) and Colors.PurplePrimary or Colors.TextWhite; b.Text = (oN == opt and "> " or "   ") .. tostring(oN) end
+        end,
+        Get = function() return selected end
+    }
+end
+
+local function createButtonRow(parent, labelText, descText, btnText, callback, indexSearch)
+    if type(descText) == "function" then
+        indexSearch = btnText
+        callback = descText
+        btnText = "执行"
+        descText = ""
+    elseif type(btnText) == "function" then
+        indexSearch = callback
+        callback = btnText
+        btnText = descText
+        descText = ""
+    end
+    local row = createBaseRow(parent, labelText, descText, indexSearch)
+    local btn = Instance.new("TextButton"); btn.Size = UDim2.new(0, M.btnW, 0, M.btnH); btn.Position = UDim2.new(1, M.btnX, 0.5, M.btnY); btn.BackgroundColor3 = Colors.ControlBg; btn.Font = Enum.Font.GothamBold; btn.Text = btnText or "执行"; btn.TextColor3 = Colors.PurplePrimary; btn.TextSize = M.btnF; btn.BorderSizePixel = 0; btn.Parent = row
+T(btn, "Size", "btnSize"); T(btn, "Position", "btnPos"); T(btn, "TextSize", "btnF")
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 3)
+    btn.MouseEnter:Connect(function() TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundColor3 = Colors.PurpleDark, TextColor3 = Colors.TextWhite}):Play() end)
+    btn.MouseLeave:Connect(function() TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundColor3 = Colors.ControlBg, TextColor3 = Colors.PurplePrimary}):Play() end)
+    btn.MouseButton1Click:Connect(function()
+        if type(callback) == "function" then pcall(callback) end
+    end)
+    return btn
+end
+
+local function createInfoRow(parent, labelText, valueText, indexSearch)
+    local row = createBaseRow(parent, labelText, "", indexSearch)
+    local vl = Instance.new("TextLabel"); vl.Size = UDim2.new(0, M.infoValW, 1, 0); vl.Position = UDim2.new(1, -M.infoValW, 0, 0); vl.BackgroundTransparency = 1; vl.Font = Enum.Font.GothamBold; vl.Text = valueText; vl.TextColor3 = Colors.PurplePrimary; vl.TextSize = M.infoValF; vl.TextXAlignment = Enum.TextXAlignment.Right; vl.Parent = row
+T(vl, "Size", "infoValSize"); T(vl, "Position", "infoValPos"); T(vl, "TextSize", "infoValF")
+    return {frame = row, Set = function(nv) vl.Text = nv end}
+end
+
+local function createInputRow(parent, labelText, descText, initialVal, callback, indexSearch, placeholder)
+    local row = createBaseRow(parent, labelText, descText, indexSearch)
+
+    local tb = Instance.new("TextBox")
+    tb.Size = UDim2.new(0, 160, 0, 24)
+    tb.Position = UDim2.new(1, -160, 0.5, -12)
+    tb.BackgroundColor3 = Colors.InputBg
+    tb.Font = Enum.Font.Gotham
+    tb.Text = tostring(initialVal or "")
+    tb.PlaceholderText = placeholder or "在此输入..."
+    tb.PlaceholderColor3 = Colors.TextMuted
+    tb.TextColor3 = Colors.TextWhite
+    tb.TextSize = 11
+    tb.ClearTextOnFocus = false
+    tb.BorderSizePixel = 0
+    tb.Parent = row
+
+    Instance.new("UICorner", tb).CornerRadius = UDim.new(0, 3)
+
+    local stroke = Instance.new("UIStroke", tb)
+    stroke.Color = Colors.BorderSubtle
+    stroke.Thickness = 1
+
+    tb.FocusLost:Connect(function()
+        if type(callback) == "function" then
+            pcall(callback, tb.Text)
+        end
+    end)
+
+    return {
+        frame = row,
+        Set = function(v)
+            tb.Text = tostring(v or "")
+        end,
+        Get = function()
+            return tb.Text
+        end
+    }
+end
+
+-- ============================================================
+-- ⚔️ 智能技能连招（Smart Combos）—— 移植自翻译版
+-- 说明：缩小版 lastSkillTime/SkillInterval 声明在 UI 构建之后，
+-- 指定插入位置无法前向捕获这些局部变量。为遵守“不新增同名局部变量”，
+-- 这里使用 comboState.lastRunTime 做智能节流，并用 comboState.legacy*
+-- 保留原简易轮换，Heartbeat 不再直接引用旧 lastSkillTime。
+-- ============================================================
+local comboState
+local RunSmartCombo
+
+do
+    comboState = {
+        openerUsedCount = 0,
+        openerDone = false,
+        loopTargetIndex = 1,
+        lastCastTime = 0,
+        lastActionTime = 0,
+        lastCastingKey = nil,
+        lastRunTime = 0,
+        wasMinigame = false,
+        usedTimes = {},
+        buttonCache = {},
+        buttonMissTime = {},
+
+        -- 向后兼容：原缩小版简易 Z/X/C/V 轮换
+        legacyLastSkillTime = 0,
+        legacySkillIdx = 1,
+        legacySkillKeys = {"Z", "X", "C", "V"},
+        legacySkillInterval = 0.15,
+
+        -- Smart Combo 决策节流
+        runInterval = 0.12,
+    }
+
+    function comboState.Reset()
+        comboState.openerUsedCount = 0
+        comboState.openerDone = false
+        comboState.loopTargetIndex = 1
+        comboState.lastActionTime = 0
+        comboState.lastCastingKey = nil
+        comboState.usedTimes = {}
+        comboState.lastRunTime = 0
+    end
+
+    function comboState.ParseLoopKeys(str)
+        local keys = {}
+        for k in string.gmatch(tostring(str or ""), "([ZXCVzxcv])") do
+            keys[#keys + 1] = k:upper()
+        end
+        return keys
+    end
+
+    function comboState.NormalizeLoopSkills(str)
+        local keys = comboState.ParseLoopKeys(str)
+        return table.concat(keys, ", ")
+    end
+
+    function comboState.AppendSkill(str, key)
+        local keys = comboState.ParseLoopKeys(str)
+        key = tostring(key or ""):upper()
+        if key:match("^[ZXCV]$") then
+            keys[#keys + 1] = key
+        end
+        return table.concat(keys, ", ")
+    end
+
+    function comboState.RemoveLastSkill(str)
+        local keys = comboState.ParseLoopKeys(str)
+        if #keys > 0 then
+            table.remove(keys, #keys)
+        end
+        return table.concat(keys, ", ")
+    end
+
+    function comboState.GetComboPreview(str)
+        local keys = comboState.ParseLoopKeys(str)
+        if #keys == 0 then
+            return "(还没有技能)"
+        end
+        return table.concat(keys, " -> ") .. string.format(" (%d 个技能)", #keys)
+    end
+
+    function comboState.GetSkillButton(key, fUI)
+        key = tostring(key or ""):upper()
+        if not key:match("^[ZXCV]$") then return nil end
+
+        local cached = comboState.buttonCache[key]
+        if cached and cached.Parent then
+            return cached
+        end
+        comboState.buttonCache[key] = nil
+
+        -- 负缓存：确认找不到后 2 秒内不再全量扫描（Heartbeat 里每帧扫描代价太高）
+        local missAt = comboState.buttonMissTime[key]
+        if missAt and (tick() - missAt) < 2 then
+            return nil
+        end
+
+        if not fUI then
+            local pg = LocalPlayer:FindFirstChild("PlayerGui")
+            local mg = pg and pg:FindFirstChild("MainGui")
+            fUI = mg and mg:FindFirstChild("Fishing")
+        end
+        if not fUI then return nil end
+
+        local sb = fUI:FindFirstChild("SkillButton")
+        local fr = sb and sb:FindFirstChild("Frame")
+        local btn = fr and fr:FindFirstChild(key)
+        if btn and btn:IsA("GuiButton") then
+            comboState.buttonCache[key] = btn
+            return btn
+        end
+
+        -- 仅缓存失效时回退扫描一次，避免 Heartbeat 每帧全量扫描
+        for _, d in ipairs(fUI:GetDescendants()) do
+            if d:IsA("GuiButton") then
+                local n = d.Name:upper()
+                if n == key or (n:find("SKILL", 1, true) and n:find(key, 1, true)) then
+                    comboState.buttonCache[key] = d
+                    comboState.buttonMissTime[key] = nil
+                    return d
+                end
+            end
+        end
+        comboState.buttonMissTime[key] = tick()
+        return nil
+    end
+
+    function comboState.IsSkillOnCooldown(key, fUI)
+        key = tostring(key or ""):upper()
+        if not key:match("^[ZXCV]$") then return false end
+
+        local btn = comboState.GetSkillButton(key, fUI)
+        if not btn then
+            -- 找不到按钮 -> 视为可用，防卡死
+            return false
+        end
+
+        if btn:GetAttribute("OnCooldown") == true or btn:GetAttribute("CD") == true then
+            return true
+        end
+
+        for _, child in ipairs(btn:GetDescendants()) do
+            if child:IsA("TextLabel") and child.Visible and child.Text ~= "" then
+                local txt = child.Text:gsub("%s+", "")
+                local cdMatch = txt:match("(%d+%.?%d*)%s*[sS]") or txt:match("(%d+%.%d+)")
+                if cdMatch then
+                    local num = tonumber(cdMatch)
+                    if num and num > 0.05 then
+                        return true
+                    end
+                end
+
+                local cName = child.Name:lower()
+                if cName:find("cd") or cName:find("cooldown") or cName:find("timer") then
+                    local num = tonumber(txt:match("(%d+%.?%d*)"))
+                    if num and num > 0.05 then
+                        return true
+                    end
+                end
+            elseif child:IsA("Frame") and child.Visible then
+                local cName = child.Name:lower()
+                if cName == "cooldown" or cName == "cd" or cName:find("cooldownframe") then
+                    return true
+                end
+            end
+        end
+
+        return false
+    end
+
+    function comboState.CastSkill(key, fUI)
+        key = tostring(key or ""):upper()
+        if not key:match("^[ZXCV]$") then return false end
+
+        -- 通道 1：RemoteEvent
+        if Events then
+            local useEv = Events:FindFirstChild("UseSkill")
+            if useEv then
+                pcall(function() useEv:FireServer(key) end)
+            end
+            local trigEv = Events:FindFirstChild("TriggerMinigameSkill")
+            if trigEv then
+                pcall(function() trigEv:FireServer(key) end)
+            end
+        end
+
+        -- 通道 2：VirtualInputManager 模拟按键
+        if VirtualInputManager then
+            local keyCode = Enum.KeyCode[key]
+            if keyCode then
+                pcall(function()
+                    VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+                    task.delay(0.02, function()
+                        pcall(function()
+                            VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+                        end)
+                    end)
+                end)
+            end
+        end
+
+        -- 通道 3：点击技能按钮
+        local btn = comboState.GetSkillButton(key, fUI)
+        if btn and btn:IsA("GuiButton") and btn.Visible then
+            pcall(function()
+                if firesignal then
+                    if btn.Activated then firesignal(btn.Activated) end
+                    if btn.MouseButton1Click then firesignal(btn.MouseButton1Click) end
+                end
+                if getconnections then
+                    local ok1, conns1 = pcall(getconnections, btn.Activated)
+                    if ok1 and type(conns1) == "table" then
+                        for _, c in ipairs(conns1) do
+                            pcall(function() c:Fire() end)
+                        end
+                    end
+                    local ok2, conns2 = pcall(getconnections, btn.MouseButton1Click)
+                    if ok2 and type(conns2) == "table" then
+                        for _, c in ipairs(conns2) do
+                            pcall(function() c:Fire() end)
+                        end
+                    end
+                end
+            end)
+        end
+
+        comboState.usedTimes[key] = tick()
+        comboState.lastCastTime = tick()
+        comboState.lastActionTime = tick()
+        comboState.lastCastingKey = key
+        return true
+    end
+
+    local function ParseHpText(txt)
+        if not txt then return nil end
+        local s = tostring(txt):gsub(",", "")
+
+        local kMatch = s:match("([%d%.]+)%s*[kK]")
+        if kMatch and tonumber(kMatch) then return tonumber(kMatch) * 1000 end
+
+        local mMatch = s:match("([%d%.]+)%s*[mM]")
+        if mMatch and tonumber(mMatch) then return tonumber(mMatch) * 1000000 end
+
+        local slashMatch = s:match("([%d%.]+)%s*/")
+        if slashMatch and tonumber(slashMatch) then return tonumber(slashMatch) end
+
+        local hpSuffix = s:match("([%d%.]+)%s*[hH][pP]") or s:match("[hH][pP]%s*:?%s*([%d%.]+)")
+        if hpSuffix and tonumber(hpSuffix) then return tonumber(hpSuffix) end
+
+        local numOnly = s:match("^%s*([%d%.]+)%s*$")
+        if numOnly and tonumber(numOnly) and tonumber(numOnly) > 0 and tonumber(numOnly) ~= 100 then
+            return tonumber(numOnly)
+        end
+
+        return nil
+    end
+
+    local function GetFishHealth(fUI)
+        -- 1. Workspace.Fishes[FishID]
+        local fishID = LocalPlayer:GetAttribute("FishID")
+        local fishesFolder = Workspace:FindFirstChild("Fishes")
+        if fishID and fishesFolder then
+            local f = fishesFolder:FindFirstChild(fishID)
+            if f then
+                local hpVal = f:FindFirstChild("FishHealth") or f:FindFirstChild("Health")
+                if hpVal and (hpVal:IsA("NumberValue") or hpVal:IsA("IntValue")) and hpVal.Value > 0 then
+                    return hpVal.Value
+                end
+                for _, child in ipairs(f:GetChildren()) do
+                    if (child.Name:find("FishHealth") or child.Name:find("Health")) and not child.Name:find("Player") then
+                        if (child:IsA("NumberValue") or child:IsA("IntValue")) and child.Value > 0 then
+                            return child.Value
+                        end
+                    end
+                end
+            end
+        end
+
+        -- 2. Character 属性
+        local char = LocalPlayer.Character
+        if char then
+            for _, att in ipairs({"FishHealth", "FishHP", "TargetHealth", "BossHP", "TargetHP"}) do
+                local v = char:GetAttribute(att)
+                if v and tonumber(v) and tonumber(v) > 0 then
+                    return tonumber(v)
+                end
+            end
+        end
+
+        -- 3. BossFightBar
+        if fUI then
+            local bossBar = fUI:FindFirstChild("BossFightBar")
+            if bossBar and bossBar.Visible and bossBar.Size.X.Scale > 0 then
+                for _, d in ipairs(bossBar:GetDescendants()) do
+                    if d:IsA("TextLabel") and d.Visible and d.Text ~= "" then
+                        local hp = ParseHpText(d.Text)
+                        if hp then return hp end
+                    end
+                end
+                -- 可见但读不到数字 -> 视为高血量 BOSS
+                return 999999
+            end
+
+            -- 4. 扫描 fUI 中鱼/目标/BOSS/敌人血量标签，排除 HPPlayer 祖先
+            for _, d in ipairs(fUI:GetDescendants()) do
+                if d:IsA("TextLabel") and d.Visible and d.Text ~= "" then
+                    local isPlayer = false
+                    local p = d
+                    while p and p ~= fUI do
+                        local pn = p.Name:lower()
+                        if pn:find("player") or pn == "hpplayer" then
+                            isPlayer = true
+                            break
+                        end
+                        p = p.Parent
+                    end
+
+                    if not isPlayer then
+                        local dn = d.Name:lower()
+                        if dn:find("fish") or dn:find("target") or dn:find("boss") or dn:find("enemy") then
+                            local hp = ParseHpText(d.Text)
+                            if hp then return hp end
+                        end
+                    end
+                end
+            end
+        end
+
+        -- 全失败 -> 普通鱼
+        return 10
+    end
+
+    local function GetPlayerHealth(fUI)
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum and hum.MaxHealth > 0 then
+            return (hum.Health / hum.MaxHealth) * 100
+        end
+
+        if fUI then
+            local hpP = fUI:FindFirstChild("HPPlayer")
+            if hpP then
+                local pBar = hpP:FindFirstChild("ProgressionBar")
+                if pBar and pBar:FindFirstChild("Bar") then
+                    return pBar.Bar.Size.X.Scale * 100
+                end
+                for _, d in ipairs(hpP:GetDescendants()) do
+                    if d:IsA("TextLabel") and d.Visible and d.Text ~= "" then
+                        local cur, max = d.Text:match("(%d+)%s*/%s*(%d+)")
+                        if cur and max and tonumber(max) > 0 then
+                            return (tonumber(cur) / tonumber(max)) * 100
+                        end
+                    end
+                end
+            end
+        end
+
+        return 100
+    end
+
+    local function IsCharacterCastingSkill()
+        if not Config.SmartEffectAutoDetect then return false end
+
+        local now = tick()
+        if (now - (comboState.lastCastTime or 0) > 0.35) then
+            return false
+        end
+
+        local char = LocalPlayer.Character
+        if not char then return false end
+
+        for _, att in ipairs({"UsingSkill", "SkillActive", "IsAttacking", "CastingSkill"}) do
+            if char:GetAttribute(att) == true then
+                return true
+            end
+        end
+
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local anim = hum and hum:FindFirstChildOfClass("Animator")
+        if anim then
+            local ok, tracks = pcall(function() return anim:GetPlayingAnimationTracks() end)
+            if ok and tracks then
+                for _, tr in ipairs(tracks) do
+                    if tr.IsPlaying and tr.Priority.Value >= Enum.AnimationPriority.Action.Value then
+                        local n = tr.Name:lower()
+                        if not n:find("fish")
+                            and not n:find("rod")
+                            and not n:find("reel")
+                            and not n:find("cast")
+                            and not n:find("idle")
+                            and not n:find("hold")
+                            and not n:find("walk")
+                            and not n:find("run") then
+                            if n:find("skill") or n:find("attack") or n:find("special") or n:find("slash") then
+                                return true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        return false
+    end
+
+    function RunSmartCombo(fUI, now)
+        if not (Config.AutoSkills or Config.SmartComboEnabled) then return end
+        now = now or tick()
+
+        -- H. 向后兼容：SmartComboEnabled=false + AutoSkills=true -> 原简易 Z/X/C/V 轮换
+        if not Config.SmartComboEnabled then
+            if Config.AutoSkills and (now - (comboState.legacyLastSkillTime or 0) >= comboState.legacySkillInterval) then
+                local keys = comboState.legacySkillKeys
+                local key = keys[comboState.legacySkillIdx]
+                comboState.CastSkill(key, fUI)
+                comboState.legacySkillIdx = comboState.legacySkillIdx % #keys + 1
+                comboState.legacyLastSkillTime = now
+            end
+            return
+        end
+
+        -- Smart Combo 决策节流
+        if now - (comboState.lastRunTime or 0) < comboState.runInterval then
+            return
+        end
+        comboState.lastRunTime = now
+
+        if IsCharacterCastingSkill() then
+            return
+        end
+
+        -- 1. 急救优先
+        local playerHp = GetPlayerHealth(fUI)
+        local healKeyRaw = Config.EmergencyHealSkill
+        if healKeyRaw and healKeyRaw ~= "关闭" then
+            local healKey = tostring(healKeyRaw):match("([ZXCVzxcv])")
+            if healKey then
+                healKey = healKey:upper()
+                if playerHp <= (tonumber(Config.EmergencyHealHp) or 40) then
+                    if not comboState.IsSkillOnCooldown(healKey, fUI) then
+                        comboState.CastSkill(healKey, fUI)
+                        return
+                    end
+                end
+            end
+        end
+
+        -- 2. 鱼血量判断
+        local fishHp = GetFishHealth(fUI)
+        local threshold = tonumber(Config.FishHpThreshold) or 500
+
+        if fishHp <= threshold then
+            local quick = Config.QuickCatchSkill
+            if quick and quick ~= "关闭" then
+                local qk = tostring(quick):match("([ZXCVzxcv])")
+                if qk then
+                    qk = qk:upper()
+                    if not comboState.IsSkillOnCooldown(qk, fUI) then
+                        comboState.CastSkill(qk, fUI)
+                    end
+                end
+            end
+            -- 快速捕杀阶段不进入循环
+            return
+        end
+
+        -- 3. 起手技能
+        if not comboState.openerDone then
+            local maxCount = tonumber(Config.OpenerMaxCount) or 1
+            if comboState.openerUsedCount < maxCount then
+                local opener = Config.OpenerSkill
+                if not opener or opener == "关闭" then
+                    comboState.openerDone = true
+                else
+                    local ok = tostring(opener):match("([ZXCVzxcv])")
+                    if ok then
+                        local k = ok:upper()
+                        if not comboState.IsSkillOnCooldown(k, fUI) then
+                            if comboState.CastSkill(k, fUI) then
+                                comboState.openerUsedCount = comboState.openerUsedCount + 1
+                                if comboState.openerUsedCount >= maxCount then
+                                    comboState.openerDone = true
+                                end
+                            end
+                        end
+                        return
+                    else
+                        comboState.openerDone = true
+                    end
+                end
+            else
+                comboState.openerDone = true
+            end
+        end
+
+        -- 4. 循环技能
+        local loopKeys = comboState.ParseLoopKeys(Config.LoopSkills)
+        if #loopKeys == 0 then
+            -- LoopSkills 为空：安全回退到 QuickCatch 或 Opener，否则跳过
+            local fallback = Config.QuickCatchSkill
+            if not fallback or fallback == "关闭" then
+                fallback = Config.OpenerSkill
+            end
+            if fallback and fallback ~= "关闭" then
+                local fk = tostring(fallback):match("([ZXCVzxcv])")
+                if fk then
+                    fk = fk:upper()
+                    if not comboState.IsSkillOnCooldown(fk, fUI) then
+                        comboState.CastSkill(fk, fUI)
+                    end
+                end
+            end
+            return
+        end
+
+        if comboState.loopTargetIndex < 1 or comboState.loopTargetIndex > #loopKeys then
+            comboState.loopTargetIndex = 1
+        end
+
+        local targetKey = loopKeys[comboState.loopTargetIndex]
+
+        -- 上一轮已经施放了这个技能，但 0.08s 后仍看不到 CD（部分鱼竿/手机端没有 CD 显示）：
+        -- 直接推进到下一个技能，避免连招卡死在同一个键上
+        if comboState.lastCastingKey == targetKey and not comboState.IsSkillOnCooldown(targetKey, fUI) then
+            comboState.loopTargetIndex = comboState.loopTargetIndex % #loopKeys + 1
+            comboState.lastCastingKey = nil
+            targetKey = loopKeys[comboState.loopTargetIndex]
+        end
+
+        if not comboState.IsSkillOnCooldown(targetKey, fUI) then
+            if comboState.CastSkill(targetKey, fUI) then
+                local capturedIndex = comboState.loopTargetIndex
+                task.delay(0.08, function()
+                    -- 按钮进入冷却 = 服务器已接收；按钮根本不存在 = 无法判断，同样推进，避免卡死在同一技能
+                    local locked = comboState.IsSkillOnCooldown(targetKey, fUI)
+                        or (not comboState.GetSkillButton(targetKey, fUI))
+                    if comboState.lastCastingKey == targetKey and locked then
+                        comboState.loopTargetIndex = capturedIndex % #loopKeys + 1
+                        comboState.lastCastingKey = nil
+                    end
+                end)
+            end
+        else
+            if comboState.lastCastingKey == targetKey then
+                comboState.loopTargetIndex = comboState.loopTargetIndex % #loopKeys + 1
+                comboState.lastCastingKey = nil
+            elseif not Config.LoopStrictOrder then
+                -- 非严格模式：在当前 tick 内挑下一个可用技能
+                for offset = 1, #loopKeys - 1 do
+                    local idx = ((comboState.loopTargetIndex - 1 + offset) % #loopKeys) + 1
+                    local sk = loopKeys[idx]
+                    if not comboState.IsSkillOnCooldown(sk, fUI) then
+                        if comboState.CastSkill(sk, fUI) then
+                            comboState.loopTargetIndex = idx % #loopKeys + 1
+                            comboState.lastCastingKey = sk
+                        end
+                        break
+                    end
+                end
+            end
+        end
+    end
+end
+
+local tabFishing   = CreateTab("钓鱼")
+local tabBoss      = CreateTab("Boss")
+local tabGod       = CreateTab("神灵")
+local tabQuests    = CreateTab("任务")
+local tabShop      = CreateTab("商店与制作")
+local tabTeleports = CreateTab("传送")
+local tabVisuals   = CreateTab("视觉")
+local tabPlayer    = CreateTab("移动")
+local tabProfiles  = CreateTab("配置文件")
+
+SwitchTab("钓鱼")
+
+local allRods = {
+    {name = "Wooden Rod", price = 0, power = 8, luck = 1},
+    {name = "Bamboo Rod", price = 100, power = 11, luck = 5},
+    {name = "Iron Hook Rod", price = 500, power = 13, luck = 10},
+    {name = "Steel Rod", price = 1000, power = 17, luck = 11},
+    {name = "Enchanted Steel Rod", price = 2000, power = 19, luck = 12},
+    {name = "Alloy Rod", price = 5000, power = 22, luck = 5},
+    {name = "Emerald Rod", price = 10000, power = 25, luck = 10},
+    {name = "Bloodfire Rod", price = 20000, power = 27, luck = 10},
+    {name = "Shadow Rod", price = 60000, power = 29, luck = 22},
+    {name = "Triple Steel Rod", price = 100000, power = 32, luck = 20},
+    {name = "Golden Rod", price = 200000, power = 35, luck = 22},
+    {name = "Grandmaster Steel Rod", price = 250000, power = 37, luck = 10},
+    {name = "Grandmaster Golden Rod", price = 1000000, power = 45, luck = 30},
+    {name = "Steel Spine Rod", price = 1500000, power = 48, luck = 20},
+    {name = "Inferno Rod", price = 1500000, power = 48, luck = 18},
+    {name = "Golden Spine Rod", price = 2000000, power = 51, luck = 21},
+    {name = "Platinum Spine Rod", price = 3000000, power = 54, luck = 25},
+    {name = "Diamond Spine Rod", price = 4000000, power = 56, luck = 25},
+    {name = "Gravisteel Rod", price = 5000000, power = 58, luck = 15},
+    {name = "Auric Gravity Rod", price = 6000000, power = 60, luck = 10},
+    {name = "Inferno Gravity Rod", price = 7000000, power = 62, luck = 20},
+    {name = "Cryo Gravity Rod", price = 8000000, power = 65, luck = 36},
+    {name = "Thunder Thorn Rod", price = 10000000, power = 67, luck = 30},
+    {name = "Starlight Rod", price = 60000000, power = 83, luck = 15},
+}
+
+createCategoryHeader(tabFishing, "实时账户与钓鱼统计").LayoutOrder = 10
+local statsCard = createCardGroup(tabFishing)
+statsCard.LayoutOrder = 11
+local infoEquippedRod = createInfoRow(statsCard, "已装备鱼竿", "无")
+local infoEquippedBait = createInfoRow(statsCard, "已装备鱼饵", "无")
+local infoFishCaught = createInfoRow(statsCard, "总捕获鱼数", "0")
+local infoCash = createInfoRow(statsCard, "当前现金", "$0")
+
+createCategoryHeader(tabFishing, "核心钓鱼自动化").LayoutOrder = 20
+local fishCard = createCardGroup(tabFishing)
+fishCard.LayoutOrder = 21
+
+createToggleRow(fishCard, "自动抛竿", "自动开始钓鱼并抛竿", Config.AutoCast, function(v) Config.AutoCast = v end)
+createSliderRow(fishCard, "抛竿延迟", "检测/抛竿频率", 0.5, 5.0, Config.CastDelay, true, "秒", function(v) Config.CastDelay = v end)
+createToggleRow(fishCard, "锚定条(小游戏)", "自动居中条并保证捕获进度", Config.AnchorBar, function(v) Config.AnchorBar = v end)
+createToggleRow(fishCard, "自动猛击/暴击", "提示时自动点击猛击按钮造成巨大伤害", Config.AutoSlam, function(v) Config.AutoSlam = v end)
+createToggleRow(fishCard, "自动充能耐久", "提示时自动充能鱼线耐久", Config.AutoCharge, function(v) Config.AutoCharge = v end)
+
+-- ============================================================
+-- ⚔️ 智能技能连招 UI（Smart Combos）
+-- 说明：本段整体包在 do ... end 内，只为在钓鱼页构建一次，
+-- 不在主 chunk 留下多余局部变量（缩小版局部名已经很挤）。
+-- ============================================================
+do
+    createCategoryHeader(tabFishing, "⚔️ 智能技能连招").LayoutOrder = 30
+    local comboCard = createCardGroup(tabFishing)
+    comboCard.LayoutOrder = 31
+
+    -- 原 fishCard 的「自动技能(爆发DPS)」迁移到这里，作为技能总开关
+    createToggleRow(comboCard, "自动技能(爆发DPS)", "收线时使用鱼竿和小游戏技能（总开关）", Config.AutoSkills, function(v) Config.AutoSkills = v end)
+
+    createToggleRow(comboCard, "启用自动技能连招", "根据鱼血量自动使用起手/循环/急救技能", Config.SmartComboEnabled, function(v) Config.SmartComboEnabled = v end)
+
+    createSliderRow(comboCard, "鱼类血量阈值", "鱼 HP ≤ 此值时只放快速捕杀技能；> 此值进入起手/循环", 100, 3000, Config.FishHpThreshold, false, " HP", function(v) Config.FishHpThreshold = v end)
+
+    local skillOptions = {"关闭", "Z", "X", "C", "V"}
+
+    createDropdownRow(comboCard, "快速捕杀技能（≤ 阈值）", "普通鱼/虚弱鱼一击必杀", skillOptions, Config.QuickCatchSkill, function(v) Config.QuickCatchSkill = v end)
+
+    createDropdownRow(comboCard, "起手技能（> 阈值）", "面对大血条/BOSS鱼时先放的技能", skillOptions, Config.OpenerSkill, function(v) Config.OpenerSkill = v end)
+
+    createSliderRow(comboCard, "起手技能使用次数", "放满次数后进入循环序列", 1, 3, Config.OpenerMaxCount, false, " 次", function(v) Config.OpenerMaxCount = v end)
+
+    local loopPresetOptions = {
+        "自定义（自由）",
+        "X, C",
+        "X, V",
+        "C, V",
+        "X, C, V",
+        "Z, X, C, V",
+        "Z, X, V",
+    }
+
+    local function presetToCombo(label)
+        if not label or label == "自定义（自由）" then
+            return nil
+        end
+        local clean = label:match("^([^%(]+)")
+        if not clean then return nil end
+        local keys = {}
+        for k in string.gmatch(clean, "([ZXCVzxcv])") do
+            table.insert(keys, k:upper())
+        end
+        if #keys == 0 then return nil end
+        return table.concat(keys, ", ")
+    end
+
+    local function comboToPreset(combo)
+        local normalized = comboState.NormalizeLoopSkills(combo)
+        for _, label in ipairs(loopPresetOptions) do
+            local pv = presetToCombo(label)
+            if pv and pv == normalized then
+                return label
+            end
+        end
+        return "自定义（自由）"
+    end
+
+    local loopPresetDropdown
+    local loopInputRow
+    local loopPreviewRow
+    local isSyncingLoopUI = false
+
+    -- 6/7/8 任意一处改动后统一刷新：模板下拉 + 自定义输入框 + 实际施放顺序
+    local function refreshLoopUI(source)
+        if isSyncingLoopUI then return end
+        isSyncingLoopUI = true
+
+        local normalized = comboState.NormalizeLoopSkills(Config.LoopSkills)
+        Config.LoopSkills = normalized
+
+        if source ~= "input" and loopInputRow and loopInputRow.Set then
+            loopInputRow.Set(normalized)
+        end
+
+        if source ~= "dropdown" and loopPresetDropdown and loopPresetDropdown.Set then
+            loopPresetDropdown.Set(comboToPreset(normalized))
+        end
+
+        if loopPreviewRow and loopPreviewRow.Set then
+            loopPreviewRow.Set(comboState.GetComboPreview(normalized))
+        end
+
+        isSyncingLoopUI = false
+    end
+
+    loopPresetDropdown = createDropdownRow(
+        comboCard,
+        "技能序列模板",
+        "快速选择常见循环序列，或选「自定义」在下方自由编辑",
+        loopPresetOptions,
+        comboToPreset(Config.LoopSkills),
+        function(v)
+            local combo = presetToCombo(v)
+            if combo then
+                Config.LoopSkills = combo
+                refreshLoopUI("dropdown")
+            end
+        end
+    )
+
+    loopInputRow = createInputRow(
+        comboCard,
+        "自定义循环序列",
+        "只接受 Z / X / C / V，例如：Z, X, V",
+        Config.LoopSkills or "Z, X, V",
+        function(txt)
+            Config.LoopSkills = comboState.NormalizeLoopSkills(txt)
+            refreshLoopUI("input")
+        end,
+        nil,
+        "例如：Z, X, V"
+    )
+
+    -- 快速编辑行
+    local quickEditRow = createBaseRow(comboCard, "快速编辑连招按键", "点击按钮快速追加 / 删除末位 / 清空循环序列")
+
+    local quickEditContainer = Instance.new("Frame")
+    quickEditContainer.Size = UDim2.new(0, 190, 0, 24)
+    quickEditContainer.Position = UDim2.new(1, -190, 0.5, -12)
+    quickEditContainer.BackgroundTransparency = 1
+    quickEditContainer.Parent = quickEditRow
+
+    local quickEditLayout = Instance.new("UIListLayout")
+    quickEditLayout.FillDirection = Enum.FillDirection.Horizontal
+    quickEditLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+    quickEditLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    quickEditLayout.Padding = UDim.new(0, 3)
+    quickEditLayout.Parent = quickEditContainer
+
+    local function makeQuickEditButton(text, bgColor, textColor, onClick)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0, 28, 0, 24)
+        btn.BackgroundColor3 = bgColor
+        btn.Font = Enum.Font.GothamBold
+        btn.Text = text
+        btn.TextColor3 = textColor
+        btn.TextSize = 11
+        btn.BorderSizePixel = 0
+        btn.Parent = quickEditContainer
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+        btn.MouseButton1Click:Connect(function()
+            pcall(onClick)
+        end)
+        return btn
+    end
+
+    makeQuickEditButton("+Z", Colors.ControlBg, Colors.PurplePrimary, function()
+        Config.LoopSkills = comboState.AppendSkill(Config.LoopSkills, "Z")
+        refreshLoopUI("quick")
+    end)
+
+    makeQuickEditButton("+X", Colors.ControlBg, Colors.PurplePrimary, function()
+        Config.LoopSkills = comboState.AppendSkill(Config.LoopSkills, "X")
+        refreshLoopUI("quick")
+    end)
+
+    makeQuickEditButton("+C", Colors.ControlBg, Colors.PurplePrimary, function()
+        Config.LoopSkills = comboState.AppendSkill(Config.LoopSkills, "C")
+        refreshLoopUI("quick")
+    end)
+
+    makeQuickEditButton("+V", Colors.ControlBg, Colors.PurplePrimary, function()
+        Config.LoopSkills = comboState.AppendSkill(Config.LoopSkills, "V")
+        refreshLoopUI("quick")
+    end)
+
+    makeQuickEditButton("退一格", Color3.fromRGB(45, 25, 30), Color3.fromRGB(255, 120, 120), function()
+        Config.LoopSkills = comboState.RemoveLastSkill(Config.LoopSkills)
+        refreshLoopUI("quick")
+    end)
+
+    makeQuickEditButton("全删", Color3.fromRGB(35, 35, 40), Colors.TextMuted, function()
+        Config.LoopSkills = ""
+        refreshLoopUI("quick")
+    end)
+
+    loopPreviewRow = createInfoRow(comboCard, "实际施放顺序", comboState.GetComboPreview(Config.LoopSkills))
+
+    createToggleRow(comboCard, "保持连招顺序（Strict Order）", "严格等待当前技能冷却；关闭后可在当前帧跳到其他可用技能", Config.LoopStrictOrder, function(v) Config.LoopStrictOrder = v end)
+
+    createDropdownRow(comboCard, "回血 / 急救技能", "玩家血量低于阈值时优先施放", skillOptions, Config.EmergencyHealSkill, function(v) Config.EmergencyHealSkill = v end)
+
+    createSliderRow(comboCard, "回血触发血量", "玩家 HP 低于此百分比时触发急救技能", 10, 80, Config.EmergencyHealHp, false, "%", function(v) Config.EmergencyHealHp = v end)
+
+    createSliderRow(comboCard, "技能释放间隔", "智能连招两次决策之间的最小间隔", 0.1, 2.5, Config.SkillEffectDelay, true, "s", function(v) Config.SkillEffectDelay = v end)
+
+    createToggleRow(comboCard, "自动识别技能特效结束", "观察技能动画，避免下一技能被吞", Config.SmartEffectAutoDetect, function(v) Config.SmartEffectAutoDetect = v end)
+
+    createButtonRow(comboCard, "重置连招状态", "清空起手次数、当前循环索引与施放记录", "重置状态", function()
+        comboState.Reset()
+        ShowNotification("智能连招", "连招状态已重置。", "SUCCESS", 3)
+    end)
+end
+
+createCategoryHeader(tabFishing, "智能自动装备引擎").LayoutOrder = 50
+local equipCard = createCardGroup(tabFishing)
+equipCard.LayoutOrder = 51
+createToggleRow(equipCard, "自动装备最佳鱼饵", "装备背包中运气最高的鱼饵", Config.AutoEquipBestBait, function(v) Config.AutoEquipBestBait = v end)
+createToggleRow(equipCard, "自动装备最佳鱼竿", "装备你拥有的最高威力鱼竿", Config.AutoEquipBestRod, function(v) Config.AutoEquipBestRod = v end)
+createToggleRow(equipCard, "自动装备最佳宝珠", "装备最高等级精华宝珠", Config.AutoEquipBestOrb, function(v) Config.AutoEquipBestOrb = v end)
+
+local rodNameList = {}
+for _, r in ipairs(allRods) do table.insert(rodNameList, r.name) end
+local baitNameList = {"Basic Bait", "Crude Mash Bait", "Corrupted Essence Bait", "Elite Bait", "Ancestral Bait", "Nameless Bait"}
+
+createDropdownRow(equipCard, "方案1：鱼竿", "方案1的鱼竿", rodNameList, Config.Loadout1_Rod, function(v) Config.Loadout1_Rod = v end)
+createDropdownRow(equipCard, "方案1：鱼饵", "方案1的鱼饵", baitNameList, Config.Loadout1_Bait, function(v) Config.Loadout1_Bait = v end)
+createButtonRow(equipCard, "立即装备方案1", "装备方案1选择的鱼竿和鱼饵", "装备#1", function()
+    local pData = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild(LocalPlayer.UserId)
+    if pData then
+        local rFolder = pData.FishingRodInventory:FindFirstChild(Config.Loadout1_Rod)
+        local isOwned = rFolder and rFolder:FindFirstChild("Owned") and rFolder.Owned.Value == true
+        if isOwned then
+            if Events:FindFirstChild("EquipFishingRod") then Events.EquipFishingRod:InvokeServer(Config.Loadout1_Rod) end
+            ShowNotification("方案1", "已装备鱼竿: " .. Config.Loadout1_Rod, "SUCCESS")
+        else
+            ShowNotification("方案1", "你还没有拥有 " .. Config.Loadout1_Rod .. " ！", "WARN")
+        end
+        local bFolder = pData.Bait:FindFirstChild(Config.Loadout1_Bait)
+        if bFolder and bFolder.Value > 0 then
+            if Events:FindFirstChild("EquipBait") then Events.EquipBait:InvokeServer(Config.Loadout1_Bait) end
+            ShowNotification("方案1", "已装备鱼饵: " .. Config.Loadout1_Bait, "SUCCESS")
+        else
+            ShowNotification("方案1", "你的背包中 " .. Config.Loadout1_Bait .. " 数量为0。", "WARN")
+        end
+    end
+end)
+
+createDropdownRow(equipCard, "方案2：鱼竿", "方案2的鱼竿", rodNameList, Config.Loadout2_Rod, function(v) Config.Loadout2_Rod = v end)
+createDropdownRow(equipCard, "方案2：鱼饵", "方案2的鱼饵", baitNameList, Config.Loadout2_Bait, function(v) Config.Loadout2_Bait = v end)
+createButtonRow(equipCard, "立即装备方案2", "装备方案2选择的鱼竿和鱼饵", "装备#2", function()
+    local pData = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild(LocalPlayer.UserId)
+    if pData then
+        local rFolder = pData.FishingRodInventory:FindFirstChild(Config.Loadout2_Rod)
+        local isOwned = rFolder and rFolder:FindFirstChild("Owned") and rFolder.Owned.Value == true
+        if isOwned then
+            if Events:FindFirstChild("EquipFishingRod") then Events.EquipFishingRod:InvokeServer(Config.Loadout2_Rod) end
+            ShowNotification("方案2", "已装备鱼竿: " .. Config.Loadout2_Rod, "SUCCESS")
+        else
+            ShowNotification("方案2", "你还没有拥有 " .. Config.Loadout2_Rod .. " ！", "WARN")
+        end
+        local bFolder = pData.Bait:FindFirstChild(Config.Loadout2_Bait)
+        if bFolder and bFolder.Value > 0 then
+            if Events:FindFirstChild("EquipBait") then Events.EquipBait:InvokeServer(Config.Loadout2_Bait) end
+            ShowNotification("方案2", "已装备鱼饵: " .. Config.Loadout2_Bait, "SUCCESS")
+        else
+            ShowNotification("方案2", "你的背包中 " .. Config.Loadout2_Bait .. " 数量为0。", "WARN")
+        end
+    end
+end)
+
+createCategoryHeader(tabFishing, "经济与出售").LayoutOrder = 60
+local sellCard = createCardGroup(tabFishing)
+sellCard.LayoutOrder = 61
+createToggleRow(sellCard, "自动卖鱼", "定期出售背包中的所有鱼", Config.AutoSell, function(v) Config.AutoSell = v end)
+createSliderRow(sellCard, "出售间隔", "出售鱼的频率", 10, 300, Config.SellInterval, false, "秒", function(v) Config.SellInterval = v end)
+
+createButtonRow(sellCard, "立即出售并传送到娜娜", "立即传送到娜娜处并出售背包", "立即出售", function()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if root then
+        root.CFrame = CFrame.new(-203.5, 7.3, 107.1)
+        task.wait(0.3)
+        if Events and Events:FindFirstChild("SellFish") then
+            Events.SellFish:FireServer("All")
+            ShowNotification("鱼已出售", "已将所有鱼卖给娜娜！", "SUCCESS")
+        end
+    end
+end)
+
+createToggleRow(sellCard, "自动收藏鱼", "保护选中的鱼不被出售", Config.AutoFavouriteFish, function(v) Config.AutoFavouriteFish = v end)
+
+-- 英文鱼名 → 中文显示名（仅用于 UI 显示；Config 的 key 仍是英文，用于精确匹配游戏物品名）
+local FavouriteFishDisplayNames = {
+    ["Black Tortoise Bloodline"] = "玄武",
+    ["Vermilion Birdblood"] = "朱雀",
+    ["Wraith Orca"] = "幽灵鲨鱼（万圣节鱼）",
+}
+
+-- ============================================================
+-- 🐟 收藏鱼：实时收藏 + 多选选择框 + 已收藏列表
+-- 注意：整段放进 do...end 块。块内局部变量离开块后即释放，
+--       不占用主 chunk 的 Luau 局部变量/寄存器额度（原脚本已接近上限，
+--       直接在顶层新增变量会导致 loadstring 编译失败）。
+--       Config.FavouriteFishNames 仍以「游戏内英文物品名」为 key，判定逻辑不变。
+-- ============================================================
+do
+-- ============================================================
+-- 🐟 收藏鱼：中文名 → 游戏内英文物品名映射表
+-- 仅用于「收藏鱼多选选择框」与中文名显示，
+-- 不参与自动收藏判定（判定仍用 Config.FavouriteFishNames[英文名] == true）。
+-- ============================================================
+local CN_TO_EN_FISH = {
+  ["深渊荧光鱼"] = "Abyssal Glow Fish",
+  ["成年蛟龙鱼"] = "Adult Jiaolong Dragonfish",
+  ["成年鲲鱼"] = "Adult Kunfish",
+  ["阿波罗剑鱼"] = "Apollo Swordfish",
+  ["水生鱼"] = "Aquatic Fish",
+  ["装甲战鱼"] = "Armored Battlefish",
+  ["傲慢鱼"] = "Arrogant Fish",
+  ["飞升鲈鱼"] = "Ascended Perch",
+  ["青鲤"] = "Azure Carp",
+  ["青鲑"] = "Azure Salmon",
+  ["青鳍草鱼"] = "Azurefin Grass Carp",
+  ["幼年蛟龙鱼"] = "Baby Jiaolong Dragonfish",
+  ["玄武血脉"] = "Black Tortoise Bloodline",
+  ["黑鳍草鱼"] = "Blackfin Grass Carp",
+  ["缚眼鱼"] = "Boundeye Fish",
+  ["鲶鱼"] = "Catfish",
+  ["链缚鲨"] = "Chainbound Shark",
+  ["七彩锦鲤"] = "Chromatic Koi",
+  ["巨型公牛鲨"] = "Colossal Bull Shark",
+  ["巨型虎鱼"] = "Colossal Tigerfish",
+  ["赤骨牙鱼"] = "Crimson Bonefang",
+  ["赤骨魔鱼"] = "Crimson Bonefiend",
+  ["赤鲷霸主"] = "Crimson Bream Sovereign",
+  ["赤鲤"] = "Crimson Carp",
+  ["赤鲶"] = "Crimson Catfish",
+  ["赤电鳗"] = "Crimson Electric Eel",
+  ["赤战鲤"] = "Crimson War Carp",
+  ["赤鳍草鱼"] = "Crimsonfin Grass Carp",
+  ["暗黑王鱼"] = "Dark Kingfish",
+  ["暗黑狮子鱼"] = "Dark Lionfish",
+  ["黑暗战鱼"] = "Darkness Battlefish",
+  ["黑暗鲨"] = "Darkness Shark",
+  ["暗鳞鱼"] = "Darkscale Fish",
+  ["魔刃鱼"] = "Demon Bladefish",
+  ["龙战鱼"] = "Dragon Battlefish",
+  ["噬龙鱼"] = "Dragonfish Devourer",
+  ["龙头罗非鱼"] = "Dragonhead Tilapia",
+  ["龙行鲤"] = "Dragonstride Carp",
+  ["梦魇鳗"] = "Dreadmare Eel",
+  ["恐鳞石斑鱼"] = "Dreadscale Grouper",
+  ["长老链缚鲨"] = "Elder Chainbound Shark",
+  ["长老龙头罗非鱼"] = "Elder Dragonhead Tilapia",
+  ["长老蛟龙鱼"] = "Elder Jiaolong Dragonfish",
+  ["长老鲲鱼"] = "Elder Kunfish",
+  ["长老鲈鱼 I"] = "Elder Perch I",
+  ["长老鲈鱼 II"] = "Elder Perch II",
+  ["长老鲈鱼 III"] = "Elder Perch III",
+  ["长老鲈鱼 IV"] = "Elder Perch IV",
+  ["长老鲈鱼 V"] = "Elder Perch V",
+  ["长老鲈鱼 VI"] = "Elder Perch VI",
+  ["长老鲈鱼 VII"] = "Elder Perch VII",
+  ["长老鲈鱼 VIII"] = "Elder Perch VIII",
+  ["长老赤鱼"] = "Elder Scarlet Fish",
+  ["翡翠鲤"] = "Emerald Carp",
+  ["翡翠战鲤"] = "Emerald War Carp",
+  ["鱼"] = "Fish",
+  ["火焰鱼"] = "Flame Fish",
+  ["裂肉鱼"] = "Fleshripper Fish",
+  ["飞鱼皇"] = "Flying Fish Emperor",
+  ["飞鱼后"] = "Flying Fish Empress",
+  ["霜王鱼"] = "Frost Kingfish",
+  ["霜后鱼"] = "Frost Queenfish",
+  ["荣耀水滴鱼"] = "Glorious Blobfish",
+  ["荣耀长老龟"] = "Glorious Elder Turtle",
+  ["荣耀皇带鱼"] = "Glorious Oarfish",
+  ["金鲫"] = "Gold Crucian Carp",
+  ["金鲤"] = "Golden Carp",
+  ["金龙鱼"] = "Golden Dragonfish",
+  ["黄金守护鱼"] = "Golden Guardian Fish",
+  ["金鲨"] = "Golden Shark",
+  ["金鳍草鱼"] = "Goldfin Grass Carp",
+  ["草罗非鱼"] = "Grass Tilapia",
+  ["穿天龟"] = "Heavenpiercer Turtle",
+  ["角银鲤"] = "Horned Silver Carp",
+  ["直觉鱼王"] = "Intuitive Fish King",
+  ["铁角鲽鱼"] = "Ironhorn Flounder",
+  ["蛟龙鱼"] = "Jiaolong Dragonfish",
+  ["杀手锯鲨"] = "Killer Sawshark",
+  ["鲲鱼 I"] = "Kunfish I",
+  ["鲲鱼 II"] = "Kunfish II",
+  ["鲲鱼 III"] = "Kunfish III",
+  ["青金石鱼"] = "Lapis Fish",
+  ["蜃景灯笼鱼"] = "Mirage Lanternfish",
+  ["山龙鲸"] = "Mountain Dragonwhale",
+  ["山鱼"] = "Mountain Fish",
+  ["变异锦鲤鲸"] = "Mutated Koi Whale",
+  ["无名八爪寄生体"] = "Nameless Octoparasite",
+  ["八爪寄生鱼"] = "Octoparasitic Fish",
+  ["幻影战鱼"] = "Phantom Battlefish",
+  ["板鳞罗非鱼"] = "Platescale Tilapia",
+  ["铂金鲤"] = "Platinum Carp",
+  ["原初鲲鱼"] = "Primordial Kunfish",
+  ["原初鲲鱼霸主"] = "Primordial Kunfish Overlord",
+  ["光辉金鱼"] = "Radiant Goldfish",
+  ["彩虹龙鱼"] = "Rainbow Dragonfish",
+  ["重生河豚兽"] = "Reborn Puffer Beast",
+  ["玫瑰鳍草鱼"] = "Rosefin Grass Carp",
+  ["皇家鲤"] = "Royal Carp",
+  ["符文角石斑鱼"] = "Runic Horn Grouper",
+  ["沙鳀"] = "Sand Anchovy",
+  ["血红鱼"] = "Sanguine Fish",
+  ["赤鱼"] = "Scarlet Fish",
+  ["赤缘头鱼"] = "Scarlet Fringehead",
+  ["蛇鱼"] = "Serpent Fish",
+  ["银鲷霸主"] = "Silver Bream Sovereign",
+  ["草鱼霸主"] = "Sovereign Grass Carp",
+  ["刺鲑"] = "Spiked Salmon",
+  ["风暴鳞黑鱼"] = "Stormscale Tautog",
+  ["日鳞鲑"] = "Sunscale Salmon",
+  ["地虎深水鱼 I"] = "Terratiger Depthfish I",
+  ["地虎深水鱼 II"] = "Terratiger Depthfish II",
+  ["地虎深水鱼 III"] = "Terratiger Depthfish III",
+  ["雷公牛鲨"] = "Thunder Bull Shark",
+  ["雷鱼"] = "Thunder Fish",
+  ["虎沼鱼"] = "Tiger Mirefish",
+  ["虎牙鲸"] = "Tigerfang Whale",
+  ["罗非鱼"] = "Tilapia",
+  ["剧毒七彩锦鲤"] = "Toxic Chromatic Koi",
+  ["鳟鱼"] = "Trout",
+  ["真形蛟龙鱼"] = "Trueform Jiaolongfish",
+  ["真形鲈鱼"] = "Trueform Perch",
+  ["情人节海豚"] = "Valentine Dolphin",
+  ["翠绿鳄雀鳝"] = "Verdant Alligator Gar",
+  ["翠骨牙鱼"] = "Verdant Bonefang",
+  ["翠绿石斑鱼"] = "Verdant Grouper",
+  ["朱雀血"] = "Vermilion Birdblood",
+  ["伏特草鱼"] = "Volt Grass Carp",
+  ["战争使者鲨"] = "Warbringer Shark",
+  ["白霄鲲鱼"] = "White Heaven Kunfish",
+  ["风鱼"] = "Wind Fish",
+  ["幽灵虎鲸"] = "Wraith Orca",
+  ["阳鱼后"] = "Yangfish Empress",
+  ["阳鱼霸主"] = "Yangfish Sovereign",
+  ["阴鱼霸主"] = "Yinfish Sovereign",
+}
+
+-- 反向表：英文名 → 中文名（用于 UI 显示已收藏鱼）
+local EN_TO_CN_FISH = {}
+for cn, en in pairs(CN_TO_EN_FISH) do
+    EN_TO_CN_FISH[en] = cn
+end
+
+-- ============================================================
+-- 🐟 收藏鱼：实时收藏 + 多选选择框 + 已收藏列表
+-- 注意：Config.FavouriteFishNames 仍以「游戏内英文物品名」为 key；
+--       自定义目标只写入 Config，不再为它们生成开关行（避免 UI 越加越长）。
+-- ============================================================
+local favouriteInfoRow
+
+local function GetFavouriteDisplayName(fishName)
+    return FavouriteFishDisplayNames[fishName] or EN_TO_CN_FISH[fishName] or tostring(fishName)
+end
+
+local function RefreshFavouriteInfoRow()
+    if not favouriteInfoRow then return end
+    local names = {}
+    for fishName, enabled in pairs(Config.FavouriteFishNames) do
+        if enabled == true then
+            table.insert(names, GetFavouriteDisplayName(fishName))
+        end
+    end
+    if #names == 0 then
+        pcall(favouriteInfoRow.Set, "无")
+        return
+    end
+    table.sort(names)
+    local shown
+    if #names > 6 then
+        local head = {}
+        for i = 1, 6 do head[i] = names[i] end
+        shown = table.concat(head, "、") .. "...等" .. #names .. "项"
+    else
+        shown = table.concat(names, "、")
+    end
+    pcall(favouriteInfoRow.Set, shown)
+end
+
+-- 实时收藏：立刻把背包里命中收藏目标的鱼点上收藏，不等出售触发
+-- 与原脚本的收藏判定完全一致（Config.FavouriteFishNames[fishNamePart] == true）
+local function FavouriteSweepNow()
+    if not Config.AutoFavouriteFish then return end
+    local pData = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild(LocalPlayer.UserId)
+    local inventory = pData and pData:FindFirstChild("Inventory")
+    if not inventory then return end
+    local ev = Events and Events:FindFirstChild("FavoriteItem")
+    if not ev then return end
+    for _, item in ipairs(inventory:GetChildren()) do
+        local itemName = item.Name
+        local fishNamePart = itemName:match("^(.-)%s*|") or itemName
+        if Config.FavouriteFishNames[fishNamePart] == true then
+            local favValue = item:FindFirstChild("Favorite")
+            local isFav = favValue and favValue.Value == true
+            local isFavSuffix = itemName:lower():match("favorite%s*$") ~= nil
+            if not isFav and not isFavSuffix then
+                ev:FireServer(itemName)
+            end
+        end
+    end
+end
+
+favouriteInfoRow = createInfoRow(sellCard, "已收藏鱼", "")
+pcall(RefreshFavouriteInfoRow)
+
+-- ============================================================
+-- 🐟 收藏鱼多选选择框（手风琴 + 勾选行，懒加载；风格与「目标筛选」一致）
+-- 点表头展开/收起；首次展开才分批创建 134 行
+-- ============================================================
+local favRows = {}
+local favList, favSearch, favCountLabel, favBuilt, favAccOpen
+local favSaveToken = 0
+
+local function CountFavouriteTargets()
+    local n = 0
+    for _, v in pairs(Config.FavouriteFishNames) do
+        if v == true then n = n + 1 end
+    end
+    return n
+end
+
+local function ScheduleFavSave()
+    favSaveToken = favSaveToken + 1
+    local my = favSaveToken
+    task.delay(0.8, function()
+        if my == favSaveToken then pcall(SaveProfile) end
+    end)
+end
+
+local function normKey(s)
+    return string.lower((string.gsub(tostring(s or ""), "%s+", "")))
+end
+
+local function UpdateFavCount()
+    if favCountLabel then
+        favCountLabel.Text = "已选 " .. CountFavouriteTargets() .. " 项"
+    end
+end
+
+local function ApplyFavSearch()
+    local q = normKey(favSearch and favSearch.Text or "")
+    for _, r in pairs(favRows) do
+        r.frame.Visible = (q == "" or string.find(r.key, q, 1, true) ~= nil)
+    end
+end
+
+local function RefreshFavRowStates()
+    for en, r in pairs(favRows) do
+        r.set(Config.FavouriteFishNames[en] == true)
+    end
+    UpdateFavCount()
+end
+
+local function MakeFavRow(parent, en, cn)
+    local row = Instance.new("TextButton")
+    row.Size = UDim2.new(1, 0, 0, 22)
+    row.BackgroundColor3 = Colors.RowNormal
+    row.BackgroundTransparency = 0.35
+    row.BorderSizePixel = 0
+    row.Text = ""
+    row.AutoButtonColor = false
+    row.Parent = parent
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 3)
+
+    local box = Instance.new("Frame")
+    box.Size = UDim2.new(0, 12, 0, 12)
+    box.Position = UDim2.new(0, 6, 0.5, -6)
+    box.BackgroundColor3 = Colors.ControlBg
+    box.BorderSizePixel = 1
+    box.BorderColor3 = Colors.BorderSubtle
+    box.Parent = row
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 2)
+
+    local mark = Instance.new("TextLabel")
+    mark.Size = UDim2.new(1, 0, 1, 0)
+    mark.BackgroundTransparency = 1
+    mark.Text = "✓"
+    mark.TextColor3 = Colors.TextWhite
+    mark.TextSize = 10
+    mark.Font = Enum.Font.GothamBold
+    mark.Parent = box
+
+    local lb = Instance.new("TextLabel")
+    lb.Size = UDim2.new(1, -30, 1, 0)
+    lb.Position = UDim2.new(0, 24, 0, 0)
+    lb.BackgroundTransparency = 1
+    lb.Text = cn .. "   " .. en
+    lb.TextColor3 = Colors.TextWhite
+    lb.TextSize = math.max(10, M.rowDescF)
+    lb.Font = Enum.Font.Gotham
+    lb.TextXAlignment = Enum.TextXAlignment.Left
+    lb.TextTruncate = Enum.TextTruncate.AtEnd
+    lb.Parent = row
+
+    local state = Config.FavouriteFishNames[en] == true
+    local function set(v)
+        state = v and true or false
+        box.BackgroundColor3 = state and Colors.PurpleAccent or Colors.ControlBg
+        mark.Visible = state
+        lb.TextColor3 = state and Colors.PurplePrimary or Colors.TextWhite
+    end
+    set(state)
+
+    row.MouseButton1Click:Connect(function()
+        set(not state)
+        Config.FavouriteFishNames[en] = state
+        pcall(UpdateFavCount)
+        pcall(RefreshFavouriteInfoRow)
+        if state then pcall(FavouriteSweepNow) end
+        pcall(ScheduleFavSave)
+    end)
+
+    return { frame = row, set = set, key = normKey(cn .. " " .. en) }
+end
+
+local function BuildFavRows()
+    if favBuilt or not favList then return end
+    favBuilt = true
+    local options = {}
+    for cn, en in pairs(CN_TO_EN_FISH) do
+        table.insert(options, { cn = cn, en = en })
+    end
+    table.sort(options, function(a, b) return a.cn < b.cn end)
+    local i = 0
+    for _, opt in ipairs(options) do
+        favRows[opt.en] = MakeFavRow(favList, opt.en, opt.cn)
+        i = i + 1
+        if i % 25 == 0 then task.wait() end
+    end
+    ApplyFavSearch()
+    UpdateFavCount()
+end
+
+-- 手风琴容器
+local favHolder = Instance.new("Frame")
+favHolder.Name = "FavAccordion"
+favHolder.Size = UDim2.new(1, 0, 0, M.rowH)
+favHolder.AutomaticSize = Enum.AutomaticSize.Y
+favHolder.BackgroundColor3 = Colors.RowNormal
+favHolder.BorderSizePixel = 0
+favHolder.ClipsDescendants = false
+favHolder.Parent = sellCard
+local favLay = Instance.new("UIListLayout")
+favLay.SortOrder = Enum.SortOrder.LayoutOrder
+favLay.Parent = favHolder
+
+-- 表头（点整行展开/收起）
+local favHead = Instance.new("TextButton")
+favHead.Name = "Head"
+favHead.Size = UDim2.new(1, 0, 0, M.rowH)
+favHead.BackgroundColor3 = Colors.RowNormal
+favHead.BorderSizePixel = 0
+favHead.Text = ""
+favHead.AutoButtonColor = false
+favHead.Parent = favHolder
+local favPad = Instance.new("UIPadding")
+favPad.PaddingLeft = UDim.new(0, M.rowPadLR)
+favPad.PaddingRight = UDim.new(0, M.rowPadLR)
+favPad.Parent = favHead
+
+local favTitle = Instance.new("TextLabel")
+favTitle.Size = UDim2.new(1, -96, 1, 0)
+favTitle.BackgroundTransparency = 1
+favTitle.Font = Enum.Font.GothamBold
+favTitle.Text = "收藏鱼（多选）"
+favTitle.TextColor3 = Colors.TextWhite
+favTitle.TextSize = M.rowTitleF
+favTitle.TextXAlignment = Enum.TextXAlignment.Left
+favTitle.Parent = favHead
+
+favCountLabel = Instance.new("TextLabel")
+favCountLabel.Size = UDim2.new(0, 62, 1, 0)
+favCountLabel.Position = UDim2.new(1, -86, 0, 0)
+favCountLabel.BackgroundTransparency = 1
+favCountLabel.Font = Enum.Font.Gotham
+favCountLabel.Text = "已选 0 项"
+favCountLabel.TextColor3 = Colors.PurpleMuted
+favCountLabel.TextSize = math.max(9, M.rowDescF)
+favCountLabel.TextXAlignment = Enum.TextXAlignment.Right
+favCountLabel.Parent = favHead
+
+local favArrow = Instance.new("TextLabel")
+favArrow.Size = UDim2.new(0, 20, 1, 0)
+favArrow.Position = UDim2.new(1, -22, 0, 0)
+favArrow.BackgroundTransparency = 1
+favArrow.Font = Enum.Font.GothamBold
+favArrow.Text = "▼"
+favArrow.TextColor3 = Colors.PurplePrimary
+favArrow.TextSize = M.rowTitleF
+favArrow.Parent = favHead
+
+favHead.MouseEnter:Connect(function()
+    TweenService:Create(favHead, TweenInfo.new(0.15), { BackgroundColor3 = Colors.RowHover }):Play()
+end)
+favHead.MouseLeave:Connect(function()
+    TweenService:Create(favHead, TweenInfo.new(0.15), { BackgroundColor3 = Colors.RowNormal }):Play()
+end)
+
+-- 展开区
+local favContent = Instance.new("Frame")
+favContent.Name = "Content"
+favContent.Size = UDim2.new(1, 0, 0, 0)
+favContent.AutomaticSize = Enum.AutomaticSize.Y
+favContent.BackgroundColor3 = Colors.InputBg
+favContent.BorderSizePixel = 0
+favContent.Visible = false
+favContent.Parent = favHolder
+local favContentLay = Instance.new("UIListLayout")
+favContentLay.SortOrder = Enum.SortOrder.LayoutOrder
+favContentLay.Padding = UDim.new(0, 1)
+favContentLay.Parent = favContent
+local favContentPad = Instance.new("UIPadding")
+favContentPad.PaddingTop = UDim.new(0, 4)
+favContentPad.PaddingBottom = UDim.new(0, 6)
+favContentPad.PaddingLeft = UDim.new(0, 6)
+favContentPad.PaddingRight = UDim.new(0, 6)
+favContentPad.Parent = favContent
+
+-- 工具行：清空
+local favTools = Instance.new("Frame")
+favTools.Size = UDim2.new(1, 0, 0, 20)
+favTools.BackgroundTransparency = 1
+favTools.Parent = favContent
+
+local favClear = Instance.new("TextButton")
+favClear.Size = UDim2.new(0, 44, 0, 18)
+favClear.Position = UDim2.new(0, 0, 0.5, -9)
+favClear.BackgroundColor3 = Colors.ControlBg
+favClear.Font = Enum.Font.GothamBold
+favClear.Text = "清空"
+favClear.TextColor3 = Colors.PurplePrimary
+favClear.TextSize = math.max(9, M.btnF - 1)
+favClear.BorderSizePixel = 0
+favClear.AutoButtonColor = false
+favClear.Parent = favTools
+Instance.new("UICorner", favClear).CornerRadius = UDim.new(0, 3)
+favClear.MouseButton1Click:Connect(function()
+    for en in pairs(Config.FavouriteFishNames) do
+        Config.FavouriteFishNames[en] = false
+    end
+    pcall(RefreshFavRowStates)
+    pcall(RefreshFavouriteInfoRow)
+    pcall(SaveProfile)
+end)
+
+-- 搜索
+favSearch = Instance.new("TextBox")
+favSearch.Size = UDim2.new(1, 0, 0, 24)
+favSearch.BackgroundColor3 = Colors.ControlBg
+favSearch.Font = Enum.Font.Gotham
+favSearch.Text = ""
+favSearch.PlaceholderText = "搜索鱼名（中文 / English）"
+favSearch.PlaceholderColor3 = Colors.TextMuted
+favSearch.TextColor3 = Colors.TextWhite
+favSearch.TextSize = math.max(10, M.rowDescF)
+favSearch.TextXAlignment = Enum.TextXAlignment.Left
+favSearch.ClearTextOnFocus = false
+favSearch.BorderSizePixel = 0
+favSearch.Parent = favContent
+Instance.new("UICorner", favSearch).CornerRadius = UDim.new(0, 3)
+local favSearchPad = Instance.new("UIPadding")
+favSearchPad.PaddingLeft = UDim.new(0, 6)
+favSearchPad.Parent = favSearch
+
+-- 列表
+local favListH = math.max(120, math.min(176, M.rowH * 4))
+favList = Instance.new("ScrollingFrame")
+favList.Size = UDim2.new(1, 0, 0, favListH)
+favList.BackgroundTransparency = 1
+favList.BorderSizePixel = 0
+favList.ScrollBarThickness = 3
+favList.ScrollBarImageColor3 = Colors.BorderSubtle
+favList.CanvasSize = UDim2.new(0, 0, 0, 0)
+favList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+favList.ScrollingDirection = Enum.ScrollingDirection.Y
+favList.Parent = favContent
+local favListLay = Instance.new("UIListLayout")
+favListLay.SortOrder = Enum.SortOrder.LayoutOrder
+favListLay.Parent = favList
+
+favSearch:GetPropertyChangedSignal("Text"):Connect(function()
+    if favBuilt then pcall(ApplyFavSearch) end
+end)
+
+favHead.MouseButton1Click:Connect(function()
+    favAccOpen = not favAccOpen
+    favContent.Visible = favAccOpen
+    favArrow.Text = favAccOpen and "▲" or "▼"
+    if favAccOpen then
+        if not favBuilt then pcall(BuildFavRows) end
+        pcall(RefreshFavRowStates)
+    end
+end)
+
+pcall(UpdateFavCount)
+table.insert(rowSearchIndex, { frame = favHolder, query = string.lower("收藏鱼 多选 favourite") })
+
+-- 实时收藏轮询：每 1.5 秒扫一次背包，不受自动抛竿/自动出售状态影响
+task.spawn(function()
+    while isRunning do
+        task.wait(1.5)
+        if isRunning then pcall(FavouriteSweepNow) end
+    end
+end)
+
+end
+
+createToggleRow(sellCard, "材料收集模式", "阻止自动出售制作材料鱼", Config.MaterialFarming, function(v) Config.MaterialFarming = v end)
+
+-- ============ 定向钓鱼 BEGIN ============
+-- 模块说明（务必保留）：
+-- 1) 本模块整体位于 do ... end 内，不新增任何顶层 local（主 chunk 已接近 Luau 200 上限）。
+-- 2) Config 的新字段定义在主 chunk 顶部的 Config 表里（属于已有表的字段，不是新变量）。
+-- 3) 仅闭包访问已存在的顶层符号：Config / SaveProfile / createCategoryHeader /
+--    createCardGroup / createToggleRow / createButtonRow / Colors / M / Events /
+--    LocalPlayer / RunService / isRunning / activeConnections / rowSearchIndex /
+--    tabFishing / task / tick / pcall。
+-- 4) 不引用「收藏鱼」块内的 CN_TO_EN_FISH / favRows / ScheduleFavSave（不在作用域），
+--    本块自带一份完整 134 条中英映射。
+-- 5) 岛屿判定使用本块的精确坐标表（13 岛），不依赖顶层旧版 GetNearestIslandName。
+--
+-- 特殊组合模型（v3）：
+--   Config.FilterSpecialGroups = {
+--       { name = "特殊组合 1", desc = "", enabled = true,
+--         fish = {...}, weather = {...}, island = {...} },
+--       ...
+--   }
+--   * 「特殊设置」手风琴里：新建特殊组合（弹窗填名字/简介）+ 组合列表。
+--   * 每个组合 = 一个可展开的开关，展开后是「天气（多选）/ 岛屿（单选）/ 鱼（多选）」三个白名单。
+--   * 组合名/简介可改、可新建、可删除（至少保留 1 个）；每个组合自带启用开关。
+--   * 任一组合（enabled == true）的天气命中 → 进入特殊模式；
+--     组里选了岛屿的，进入时自动传送到该岛（面朝存档方向），天气结束后回到进入前的位置；
+--     特殊鱼池取所有命中组合的并集（只统计非空池）。
+--   * 旧版 Config.FilterTargetSpecialFish/Weather/Island 仅在首次注入时迁移为「特殊组合 1」。
+--
+-- §6.1 关键行为对照表（普通鱼池 A / 特殊池 B / 特殊模式 = 至少一个启用组的天气命中；选岛的组进入时自动传送）：
+--   普通鱼池 | 特殊池 | 特殊模式 | 结果
+--   空       | 空     | —        | 不取消，钓所有鱼
+--   有 A     | 空     | —        | 鱼名≠A → 取消
+--   空       | 有 B   | 是       | 鱼名≠B → 取消
+--   空       | 有 B   | 否       | 不取消
+--   有 A     | 有 B   | 是       | 鱼名≠A 且 ≠B → 取消（并集：命中任一池即保留）
+--   有 A     | 有 B   | 否       | 鱼名≠A → 取消（只看普通鱼池）
+--   空       | 空     | 是       | 不取消（天气满足但不限制鱼）
+do
+-- ============================================================
+-- 【1】常量（可调）
+-- ============================================================
+local HOTBAR_GAP          = 0.12   -- 两次 ToggleHotbar 间隔（≥0.1s，留 0.02s 余量）
+local HOTBAR_COOLDOWN     = 1.0    -- 取消钓鱼冷却（秒）
+local TICK_INTERVAL       = 0.5    -- Heartbeat 检查节流（秒）
+local SAVE_DEBOUNCE       = 0.8    -- 勾选后防抖保存（秒）
+
+-- ============================================================
+-- 【2】数据表
+-- ============================================================
+local CN_TO_EN_FISH = {
+  ["深渊荧光鱼"] = "Abyssal Glow Fish",
+  ["成年蛟龙鱼"] = "Adult Jiaolong Dragonfish",
+  ["成年鲲鱼"] = "Adult Kunfish",
+  ["阿波罗剑鱼"] = "Apollo Swordfish",
+  ["水生鱼"] = "Aquatic Fish",
+  ["装甲战鱼"] = "Armored Battlefish",
+  ["傲慢鱼"] = "Arrogant Fish",
+  ["飞升鲈鱼"] = "Ascended Perch",
+  ["青鲤"] = "Azure Carp",
+  ["青鲑"] = "Azure Salmon",
+  ["青鳍草鱼"] = "Azurefin Grass Carp",
+  ["幼年蛟龙鱼"] = "Baby Jiaolong Dragonfish",
+  ["玄武血脉"] = "Black Tortoise Bloodline",
+  ["黑鳍草鱼"] = "Blackfin Grass Carp",
+  ["缚眼鱼"] = "Boundeye Fish",
+  ["鲶鱼"] = "Catfish",
+  ["链缚鲨"] = "Chainbound Shark",
+  ["七彩锦鲤"] = "Chromatic Koi",
+  ["巨型公牛鲨"] = "Colossal Bull Shark",
+  ["巨型虎鱼"] = "Colossal Tigerfish",
+  ["赤骨牙鱼"] = "Crimson Bonefang",
+  ["赤骨魔鱼"] = "Crimson Bonefiend",
+  ["赤鲷霸主"] = "Crimson Bream Sovereign",
+  ["赤鲤"] = "Crimson Carp",
+  ["赤鲶"] = "Crimson Catfish",
+  ["赤电鳗"] = "Crimson Electric Eel",
+  ["赤战鲤"] = "Crimson War Carp",
+  ["赤鳍草鱼"] = "Crimsonfin Grass Carp",
+  ["暗黑王鱼"] = "Dark Kingfish",
+  ["暗黑狮子鱼"] = "Dark Lionfish",
+  ["黑暗战鱼"] = "Darkness Battlefish",
+  ["黑暗鲨"] = "Darkness Shark",
+  ["暗鳞鱼"] = "Darkscale Fish",
+  ["魔刃鱼"] = "Demon Bladefish",
+  ["龙战鱼"] = "Dragon Battlefish",
+  ["噬龙鱼"] = "Dragonfish Devourer",
+  ["龙头罗非鱼"] = "Dragonhead Tilapia",
+  ["龙行鲤"] = "Dragonstride Carp",
+  ["梦魇鳗"] = "Dreadmare Eel",
+  ["恐鳞石斑鱼"] = "Dreadscale Grouper",
+  ["长老链缚鲨"] = "Elder Chainbound Shark",
+  ["长老龙头罗非鱼"] = "Elder Dragonhead Tilapia",
+  ["长老蛟龙鱼"] = "Elder Jiaolong Dragonfish",
+  ["长老鲲鱼"] = "Elder Kunfish",
+  ["长老鲈鱼 I"] = "Elder Perch I",
+  ["长老鲈鱼 II"] = "Elder Perch II",
+  ["长老鲈鱼 III"] = "Elder Perch III",
+  ["长老鲈鱼 IV"] = "Elder Perch IV",
+  ["长老鲈鱼 V"] = "Elder Perch V",
+  ["长老鲈鱼 VI"] = "Elder Perch VI",
+  ["长老鲈鱼 VII"] = "Elder Perch VII",
+  ["长老鲈鱼 VIII"] = "Elder Perch VIII",
+  ["长老赤鱼"] = "Elder Scarlet Fish",
+  ["翡翠鲤"] = "Emerald Carp",
+  ["翡翠战鲤"] = "Emerald War Carp",
+  ["鱼"] = "Fish",
+  ["火焰鱼"] = "Flame Fish",
+  ["裂肉鱼"] = "Fleshripper Fish",
+  ["飞鱼皇"] = "Flying Fish Emperor",
+  ["飞鱼后"] = "Flying Fish Empress",
+  ["霜王鱼"] = "Frost Kingfish",
+  ["霜后鱼"] = "Frost Queenfish",
+  ["荣耀水滴鱼"] = "Glorious Blobfish",
+  ["荣耀长老龟"] = "Glorious Elder Turtle",
+  ["荣耀皇带鱼"] = "Glorious Oarfish",
+  ["金鲫"] = "Gold Crucian Carp",
+  ["金鲤"] = "Golden Carp",
+  ["金龙鱼"] = "Golden Dragonfish",
+  ["黄金守护鱼"] = "Golden Guardian Fish",
+  ["金鲨"] = "Golden Shark",
+  ["金鳍草鱼"] = "Goldfin Grass Carp",
+  ["草罗非鱼"] = "Grass Tilapia",
+  ["穿天龟"] = "Heavenpiercer Turtle",
+  ["角银鲤"] = "Horned Silver Carp",
+  ["直觉鱼王"] = "Intuitive Fish King",
+  ["铁角鲽鱼"] = "Ironhorn Flounder",
+  ["蛟龙鱼"] = "Jiaolong Dragonfish",
+  ["杀手锯鲨"] = "Killer Sawshark",
+  ["鲲鱼 I"] = "Kunfish I",
+  ["鲲鱼 II"] = "Kunfish II",
+  ["鲲鱼 III"] = "Kunfish III",
+  ["青金石鱼"] = "Lapis Fish",
+  ["蜃景灯笼鱼"] = "Mirage Lanternfish",
+  ["山龙鲸"] = "Mountain Dragonwhale",
+  ["山鱼"] = "Mountain Fish",
+  ["变异锦鲤鲸"] = "Mutated Koi Whale",
+  ["无名八爪寄生体"] = "Nameless Octoparasite",
+  ["八爪寄生鱼"] = "Octoparasitic Fish",
+  ["幻影战鱼"] = "Phantom Battlefish",
+  ["板鳞罗非鱼"] = "Platescale Tilapia",
+  ["铂金鲤"] = "Platinum Carp",
+  ["原初鲲鱼"] = "Primordial Kunfish",
+  ["原初鲲鱼霸主"] = "Primordial Kunfish Overlord",
+  ["光辉金鱼"] = "Radiant Goldfish",
+  ["彩虹龙鱼"] = "Rainbow Dragonfish",
+  ["重生河豚兽"] = "Reborn Puffer Beast",
+  ["玫瑰鳍草鱼"] = "Rosefin Grass Carp",
+  ["皇家鲤"] = "Royal Carp",
+  ["符文角石斑鱼"] = "Runic Horn Grouper",
+  ["沙鳀"] = "Sand Anchovy",
+  ["血红鱼"] = "Sanguine Fish",
+  ["赤鱼"] = "Scarlet Fish",
+  ["赤缘头鱼"] = "Scarlet Fringehead",
+  ["蛇鱼"] = "Serpent Fish",
+  ["银鲷霸主"] = "Silver Bream Sovereign",
+  ["草鱼霸主"] = "Sovereign Grass Carp",
+  ["刺鲑"] = "Spiked Salmon",
+  ["风暴鳞黑鱼"] = "Stormscale Tautog",
+  ["日鳞鲑"] = "Sunscale Salmon",
+  ["地虎深水鱼 I"] = "Terratiger Depthfish I",
+  ["地虎深水鱼 II"] = "Terratiger Depthfish II",
+  ["地虎深水鱼 III"] = "Terratiger Depthfish III",
+  ["雷公牛鲨"] = "Thunder Bull Shark",
+  ["雷鱼"] = "Thunder Fish",
+  ["虎沼鱼"] = "Tiger Mirefish",
+  ["虎牙鲸"] = "Tigerfang Whale",
+  ["罗非鱼"] = "Tilapia",
+  ["剧毒七彩锦鲤"] = "Toxic Chromatic Koi",
+  ["鳟鱼"] = "Trout",
+  ["真形蛟龙鱼"] = "Trueform Jiaolongfish",
+  ["真形鲈鱼"] = "Trueform Perch",
+  ["情人节海豚"] = "Valentine Dolphin",
+  ["翠绿鳄雀鳝"] = "Verdant Alligator Gar",
+  ["翠骨牙鱼"] = "Verdant Bonefang",
+  ["翠绿石斑鱼"] = "Verdant Grouper",
+  ["朱雀血"] = "Vermilion Birdblood",
+  ["伏特草鱼"] = "Volt Grass Carp",
+  ["战争使者鲨"] = "Warbringer Shark",
+  ["白霄鲲鱼"] = "White Heaven Kunfish",
+  ["风鱼"] = "Wind Fish",
+  ["幽灵虎鲸"] = "Wraith Orca",
+  ["阳鱼后"] = "Yangfish Empress",
+  ["阳鱼霸主"] = "Yangfish Sovereign",
+  ["阴鱼霸主"] = "Yinfish Sovereign",
+}
+
+-- 天气白名单（8 项，key 用英文，与游戏内 Weather.Value 对齐）
+local WEATHER_LIST = {
+    { key = "Blazing Sun",  display = "烈日   Blazing Sun" },
+    { key = "Blood",        display = "血   Blood" },
+    { key = "Clear",        display = "晴朗   Clear" },
+    { key = "Foggy",        display = "雾天   Foggy" },
+    { key = "Rainy",        display = "雨天   Rainy" },
+    { key = "Snowy",        display = "雪天   Snowy" },
+    { key = "Thunderstorm", display = "雷暴   Thunderstorm" },
+    { key = "Windy",        display = "大风   Windy" },
+}
+
+-- 岛屿精确坐标（13 个，来自用户存档 position）
+local ISLAND_POSITIONS = {
+    ["起始岛"]         = Vector3.new(19.3397159576416, 16.743179321289064, 241.80313110351563),
+    ["竹岛"]           = Vector3.new(-1153.4862060546876, 13.515806198120118, 190.30087280273438),
+    ["辐射岛"]         = Vector3.new(177.22296142578126, 20.291975021362306, 1127.291259765625),
+    ["主权岛"]         = Vector3.new(-1606.1505126953126, 20.94893455505371, 1142.779052734375),
+    ["鲈鱼岛"]         = Vector3.new(-246.63560485839845, 27.428939819335939, -1113.7626953125),
+    ["冰霜岛"]         = Vector3.new(-1130.5528564453126, 10.743480682373047, -1462.156982421875),
+    ["椰子岛"]         = Vector3.new(1584.0296630859376, 17.934656143188478, -1300.9949951171876),
+    ["琥珀岛"]         = Vector3.new(1330.3238525390626, 17.969131469726564, 1197.9720458984376),
+    ["战场岛"]         = Vector3.new(1452.9798583984376, 7.555243968963623, -247.11428833007813),
+    ["雾峰岛"]         = Vector3.new(2683.641357421875, 12.531246185302735, -198.39810180664063),
+    ["世界垂钓者岛"]   = Vector3.new(-2685.112548828125, 13.47580623626709, -112.54969024658203),
+    ["天气岛"]         = Vector3.new(-3113.72314453125, 13.515806198120118, 1659.89501953125),
+    ["神秘珊瑚岛"]     = Vector3.new(-2653.612548828125, 14.636799812316895, -1657.2615966796876),
+}
+
+-- 岛屿朝向（来自用户存档的 lookVector / upVector）：特殊组命中后传送过去并面朝该方向
+local ISLAND_ORDER = {
+    "起始岛", "竹岛", "辐射岛", "主权岛", "鲈鱼岛", "冰霜岛", "椰子岛",
+    "琥珀岛", "战场岛", "雾峰岛", "世界垂钓者岛", "天气岛", "神秘珊瑚岛",
+}
+
+local ISLAND_FACING = {
+    ["起始岛"]       = { look = Vector3.new(0.6113491058349609, -6.41359250153073e-8, 0.7913610339164734),  up = Vector3.new(6.612367542402353e-8, 1, 2.996264925059222e-8) },
+    ["竹岛"]         = { look = Vector3.new(0.7761129140853882, -7.365263599012906e-8, 0.6305939555168152),  up = Vector3.new(9.260677558131647e-8, 1, 2.821659128571241e-9) },
+    ["辐射岛"]       = { look = Vector3.new(0.8127187490463257, 5.97969531668241e-8, -0.5826561450958252),  up = Vector3.new(-8.867854717209411e-8, 1, -2.10651904808401e-8) },
+    ["主权岛"]       = { look = Vector3.new(-0.9673005938529968, -2.90780732825624e-8, -0.25363269448280337), up = Vector3.new(-2.4128514297672156e-8, 1, -2.2625419759947364e-8) },
+    ["鲈鱼岛"]       = { look = Vector3.new(-0.41031762957572939, 6.312547640163757e-8, 0.9119426608085632),  up = Vector3.new(5.328264052195664e-9, 1, -6.682349606990101e-8) },
+    ["冰霜岛"]       = { look = Vector3.new(0.9667565822601318, 4.9245461042346509e-9, 0.25569841265678408),  up = Vector3.new(-5.361501465017682e-9, 1, 1.0118201831943452e-9) },
+    ["椰子岛"]       = { look = Vector3.new(0.6614249348640442, -4.8707086364174759e-8, 0.7500113844871521),  up = Vector3.new(-2.299367629632343e-8, 1, 8.521961092355923e-8) },
+    ["琥珀岛"]       = { look = Vector3.new(0.23814573884010316, -8.442712084999471e-10, -0.9712294340133667), up = Vector3.new(-7.8346594989398e-8, 1, -2.0079887974588929e-8) },
+    ["战场岛"]       = { look = Vector3.new(-0.3330191373825073, -3.0753746216305447e-8, -0.9429200887680054), up = Vector3.new(-2.200711435307312e-8, 1, -2.4842991663831527e-8) },
+    ["雾峰岛"]       = { look = Vector3.new(0.5470853447914124, 8.460483513772488e-8, -0.8370768427848816),  up = Vector3.new(-3.390287162119421e-8, 1, 7.891398468018451e-8) },
+    ["世界垂钓者岛"] = { look = Vector3.new(-0.33480027318000796, 2.41100721609655e-8, 0.9422891139984131), up = Vector3.new(2.3371772073232934e-8, 1, -1.7282589581668618e-8) },
+    ["天气岛"]       = { look = Vector3.new(-0.3040750324726105, 1.2087282286188384e-9, 0.9526481032371521), up = Vector3.new(-2.5166935202491915e-9, 1, -2.0721102611531707e-9) },
+    ["神秘珊瑚岛"]   = { look = Vector3.new(0.290736585855484, -1.8085222208696906e-9, -0.9568031430244446), up = Vector3.new(-4.4634722584646628e-9, 1, -3.2464535504317384e-9) },
+}
+
+-- 由存档坐标 + 朝向合成 CFrame（位置精确，朝向为存档时面向的方向）
+local function GetIslandCFrame(name)
+    local base = ISLAND_POSITIONS[name]
+    local facing = ISLAND_FACING[name]
+    if not base or not facing then return nil end
+    return CFrame.lookAt(base, base + facing.look, facing.up)
+end
+
+-- 岛屿单选：旧存档/异常数据里如果选了多个，只保留顺序里的第一个
+local function EnforceSingleIsland(grp)
+    if type(grp) ~= "table" then return end
+    if type(grp.island) ~= "table" then grp.island = {}; return end
+    local kept = nil
+    for _, islName in ipairs(ISLAND_ORDER) do
+        if grp.island[islName] == true then kept = islName; break end
+    end
+    local keys = {}
+    for k in pairs(grp.island) do keys[#keys + 1] = k end
+    for _, k in ipairs(keys) do grp.island[k] = nil end
+    if kept then grp.island[kept] = true end
+end
+
+-- 岛屿英文名（仅用于列表显示 / 主搜索框，不参与匹配）
+local ISLAND_EN = {
+    ["起始岛"]       = "Beginning Isle",
+    ["竹岛"]         = "Bamboo Isle",
+    ["辐射岛"]       = "Fallout Isle",
+    ["主权岛"]       = "Sovereign Isle",
+    ["鲈鱼岛"]       = "Perch Isle",
+    ["冰霜岛"]       = "Frost Isle",
+    ["椰子岛"]       = "Coconut Isle",
+    ["琥珀岛"]       = "Amber Isle",
+    ["战场岛"]       = "Battlefield Isle",
+    ["雾峰岛"]       = "Mistpeak Isle",
+    ["世界垂钓者岛"] = "World Angler Isle",
+    ["天气岛"]       = "Weather Isle",
+    ["神秘珊瑚岛"]   = "Mystic Reef Isle",
+}
+
+-- ============================================================
+-- 【3】选项构造 & 查找表
+-- ============================================================
+local function normKey(s)
+    return string.lower((string.gsub(tostring(s or ""), "%s+", "")))
+end
+
+local fishOptions = {}
+for cn, en in pairs(CN_TO_EN_FISH) do
+    fishOptions[#fishOptions + 1] = { key = en, display = cn .. "   " .. en }
+end
+table.sort(fishOptions, function(a, b) return a.key < b.key end)
+
+local weatherOptions = {}
+for _, w in ipairs(WEATHER_LIST) do
+    weatherOptions[#weatherOptions + 1] = { key = w.key, display = w.display }
+end
+
+local islandOptions = {}
+for islName, islPos in pairs(ISLAND_POSITIONS) do
+    islandOptions[#islandOptions + 1] = {
+        key = islName,
+        display = islName .. "   " .. (ISLAND_EN[islName] or ""),
+        pos = islPos,
+    }
+end
+table.sort(islandOptions, function(a, b) return a.key < b.key end)
+
+-- 中文名 / 英文名（忽略大小写与空格）→ 规范英文名，用于鱼名匹配
+local FISH_CANON = {}
+for cn, en in pairs(CN_TO_EN_FISH) do
+    FISH_CANON[normKey(cn)] = en
+    FISH_CANON[normKey(en)] = en
+end
+
+-- 统计 table 中值为 true 的键数量（false / 已删除的 key 不计）
+local function CountTrue(tbl)
+    local n = 0
+    if type(tbl) ~= "table" then return 0 end
+    for _, v in pairs(tbl) do
+        if v == true then n = n + 1 end
+    end
+    return n
+end
+
+-- 只复制值为 true 的键（旧版三个特殊池 → 特殊组合 1 迁移用）
+local function CopyTrue(src)
+    local out = {}
+    if type(src) == "table" then
+        for k, v in pairs(src) do
+            if v == true then out[k] = true end
+        end
+    end
+    return out
+end
+
+-- ============================================================
+-- 【4】共享防抖保存（所有手风琴共用同一个 token）
+-- ============================================================
+local saveToken = 0
+local function DebounceSave()
+    saveToken = saveToken + 1
+    local my = saveToken
+    task.delay(SAVE_DEBOUNCE, function()
+        if my == saveToken then pcall(SaveProfile) end
+    end)
+end
+
+-- ============================================================
+-- 【5】运行时读取 / 筛选核心
+-- ============================================================
+local filterState = {
+    isFiltering    = false,
+    savedPos       = nil,
+    savedCFrame    = nil,
+    lastCheck      = 0,
+    lastFishName   = nil,
+    lastHotbarTime = 0,
+    matchedGroups  = {},
+}
+
+local TEXT_PROPS = { "ContentText", "Text", "Value" }
+
+-- 兼容 TextLabel（ContentText → Text）/ StringValue（Value），任一步失败都安全返回 nil
+-- 兼容结构：Weather 本身是 Frame，真正的文本在子节点 Value（TextLabel）的 .Text 里
+local function ReadTextProp(inst)
+    if not inst then return nil end
+    for _, prop in ipairs(TEXT_PROPS) do
+        local ok, v = pcall(function() return inst[prop] end)
+        if ok and type(v) == "string" and v ~= "" then
+            return v
+        end
+    end
+    local okChild, child = pcall(function() return inst:FindFirstChild("Value") end)
+    if okChild and child then
+        for _, prop in ipairs(TEXT_PROPS) do
+            local ok, v = pcall(function() return child[prop] end)
+            if ok and type(v) == "string" and v ~= "" then
+                return v
+            end
+        end
+    end
+    return nil
+end
+
+-- 路径：PlayerGui.MainGui.Info.Info.Weather.Value
+-- "Weather: Clear" / "Weather:Clear" / "Clear" → "Clear"；空 → nil
+local function GetCurrentWeather()
+    local ok, raw = pcall(function()
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        local mainGui = pg and pg:FindFirstChild("MainGui")
+        local info = mainGui and mainGui:FindFirstChild("Info")
+        local infoInner = info and info:FindFirstChild("Info")
+        local weather = infoInner and infoInner:FindFirstChild("Weather")
+        if not weather then return nil end
+        return ReadTextProp(weather)
+    end)
+    if not ok or type(raw) ~= "string" then return nil end
+
+    local s = raw:match("^%s*(.-)%s*$")
+    if not s or s == "" then return nil end
+
+    -- 取 ":" 后半段；没有冒号（纯值）时保持原样
+    local after = s:match("^[^:]-:%s*(.*)$")
+    if after ~= nil then s = after end
+    s = s:match("^%s*(.-)%s*$") or ""
+    if s == "" then return nil end
+    return s
+end
+
+-- 暴露给天气跳服模块（全局，避免新增顶层 local）
+IdenticalWeather = {
+    GetCurrent = GetCurrentWeather,
+    List = WEATHER_LIST,
+    Options = weatherOptions,
+}
+
+-- 路径：PlayerGui.MainGui.Fishing.ProgressionBar.FishName
+-- "Fish: X" / "FishName: X" / "X" → "X"；空/空白 → nil
+local function GetCurrentFishName()
+    local ok, text = pcall(function()
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        local mainGui = pg and pg:FindFirstChild("MainGui")
+        local fishing = mainGui and mainGui:FindFirstChild("Fishing")
+        local progBar = fishing and fishing:FindFirstChild("ProgressionBar")
+        local fishName = progBar and progBar:FindFirstChild("FishName")
+        return ReadTextProp(fishName)
+    end)
+    if not ok or type(text) ~= "string" then return nil end
+
+    local s = text:match("^%s*(.-)%s*$")
+    if not s or s == "" then return nil end
+
+    -- 兼容 "... | 重量" 这类带分隔符的文本
+    s = s:match("^(.-)%s*|") or s
+    s = s:match("^%s*(.-)%s*$") or ""
+
+    if s ~= "" then
+        local stripped = s:match("^%s*Fish%s*Name%s*:%s*(.*)$")
+        if stripped == nil then stripped = s:match("^%s*Fish%s*:%s*(.*)$") end
+        if stripped ~= nil then s = stripped end
+        s = s:match("^%s*(.-)%s*$") or ""
+    end
+    if s == "" then return nil end
+    return s
+end
+
+-- 暴露当前鱼名读取器（只读，供外部排查用，不影响筛选逻辑）
+IdenticalFishFilter = {
+    GetCurrentFishName = GetCurrentFishName,
+}
+
+-- 鱼名规范化：中文名 / 大小写不一致 / 多空格 → 规范英文名
+local function CanonicalFishName(name)
+    if not name or name == "" then return name end
+    return FISH_CANON[normKey(name)] or name
+end
+
+-- 白名单命中：先直查 key，再忽略大小写回退一次（每次判定最多 134 次 lower，已被鱼名节流）
+local function MatchPool(pool, name)
+    if type(pool) ~= "table" or type(name) ~= "string" then return false end
+    if pool[name] == true then return true end
+    local low = string.lower(name)
+    for k, v in pairs(pool) do
+        if v == true and type(k) == "string" and string.lower(k) == low then
+            return true
+        end
+    end
+    return false
+end
+
+-- 返回当前天气下所有命中的启用组（只按天气匹配）
+-- 组里选了岛屿的：进入特殊模式时自动传送到该岛（面朝存档方向）；天气结束后回原位
+local function GetMatchedGroups(w)
+    local matched = {}
+    if not w or type(Config.FilterSpecialGroups) ~= "table" then return matched end
+    for _, grp in ipairs(Config.FilterSpecialGroups) do
+        if grp.enabled and MatchPool(grp.weather, w) then
+            matched[#matched + 1] = grp
+        end
+    end
+    return matched
+end
+
+-- 从命中的组里取传送目标：第一个「选了岛屿」的组 → 该组第一个选中的岛
+local function GetSpecialTeleportTarget(matchedGroups)
+    for _, grp in ipairs(matchedGroups) do
+        if CountTrue(grp.island) > 0 then
+            for _, islName in ipairs(ISLAND_ORDER) do
+                if grp.island[islName] == true then
+                    local cf = GetIslandCFrame(islName)
+                    if cf then return cf, islName end
+                end
+            end
+        end
+    end
+    return nil, nil
+end
+
+-- 传送角色到岛屿并面朝存档方向（在船上会先取消坐下）
+local function TeleportToSpecialIsland(cf)
+    if not cf then return false end
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    local ok = pcall(function()
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Sit then hum.Sit = false end
+        root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        root.CFrame = cf
+    end)
+    return ok
+end
+
+-- ============================================================
+-- 【5.1】进入 / 退出特殊筛选模式
+-- ============================================================
+local function EnterFilterMode()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    filterState.savedCFrame = root and root.CFrame or nil
+    filterState.savedPos = root and root.Position or nil
+    filterState.isFiltering = true
+    filterState.lastFishName = nil
+end
+
+local function ExitFilterMode()
+    -- 只有 HumanoidRootPart 有效时才传送（船上 / 死亡时跳过，避免掉海）
+    if filterState.savedCFrame then
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root then
+            pcall(function() root.CFrame = filterState.savedCFrame end)
+        end
+    end
+    filterState.isFiltering = false
+    filterState.savedPos = nil
+    filterState.savedCFrame = nil
+    filterState.lastFishName = nil
+    filterState.matchedGroups = {}
+end
+
+-- 取消本次钓鱼：必须用 InvokeServer
+local function CancelCurrentCatch()
+    if tick() - filterState.lastHotbarTime < HOTBAR_COOLDOWN then return end
+    filterState.lastHotbarTime = tick()
+
+    local ev = Events and Events:FindFirstChild("ToggleHotbar")
+    if not ev then return end
+
+    pcall(function() ev:InvokeServer("1") end)
+    task.wait(HOTBAR_GAP)
+    pcall(function() ev:InvokeServer("1") end)
+    filterState.lastFishName = nil
+end
+
+local function TickFilter()
+    if not Config.AutoFilterFish then return end
+    if not isRunning then return end
+
+    -- ① 天气命中 → 是否进入特殊筛选（组里选了岛屿的，进入时自动传送过去）
+    local w = GetCurrentWeather()
+    if w then
+        local matched = GetMatchedGroups(w)
+        filterState.matchedGroups = matched
+        if #matched > 0 and not filterState.isFiltering then
+            EnterFilterMode()
+            local teleportCF = GetSpecialTeleportTarget(matched)
+            if teleportCF then TeleportToSpecialIsland(teleportCF) end
+        elseif #matched == 0 and filterState.isFiltering then
+            ExitFilterMode()
+        end
+    end
+    -- 天气不可读（MainGui 未加载 / 字段缺失）时：保持当前模式，普通鱼池照常判鱼
+
+    -- ② 鱼名判断（仅小游戏进行中，避免抛竿瞬间误判上一次的鱼名）
+    local char = LocalPlayer.Character
+    local inMinigame = false
+    if char then
+        local okAttr, attr = pcall(function() return char:GetAttribute("Minigame") end)
+        inMinigame = okAttr and (attr == true)
+    end
+    if not inMinigame then
+        filterState.lastFishName = nil   -- 小游戏结束 → 下一条同名的鱼重新判断
+        return
+    end
+
+    local fname = GetCurrentFishName()
+    if not fname then return end
+    if fname == filterState.lastFishName then return end
+    filterState.lastFishName = fname
+
+    local canon = CanonicalFishName(fname)
+    local hasNormal = CountTrue(Config.FilterTargetFish) > 0
+
+    -- 特殊模式：命中组合里存在非空鱼池时，这些池（并集）参与判定
+    local mg = {}
+    if filterState.isFiltering then mg = filterState.matchedGroups or {} end
+    local hasSpecialPool = false
+    for i = 1, #mg do
+        if CountTrue(mg[i].fish) > 0 then hasSpecialPool = true; break end
+    end
+
+    local passNormal = (not hasNormal) or MatchPool(Config.FilterTargetFish, canon)
+    local passSpecial = true
+    if hasSpecialPool then
+        passSpecial = false
+        for i = 1, #mg do
+            if MatchPool(mg[i].fish, canon) then passSpecial = true; break end
+        end
+    end
+
+    -- §6.1 并集语义：
+    --   两池都生效  → 命中任一池即保留（普通 ∪ 特殊）
+    --   只有一池生效 → 只看该池
+    --   都不生效    → 不限制
+    local pass
+    if hasNormal and hasSpecialPool then
+        pass = passNormal or passSpecial
+    elseif hasNormal then
+        pass = passNormal
+    elseif hasSpecialPool then
+        pass = passSpecial
+    else
+        pass = true
+    end
+
+    if pass then return end
+
+    CancelCurrentCatch()
+end
+
+-- ============================================================
+-- 【6】通用手风琴工厂（照抄「收藏鱼」模块结构，风格完全一致）
+-- 返回 { holder, head, content, refreshCount, refreshRows, _countLabel }
+-- configTable == nil 或 dataSource == nil 时：只生成表头 + 空 content（仅作容器）
+-- ============================================================
+local function MakeWhitelistAccordion(parent, titleText, configTable, dataSource, defaultOpen, onChanged, listHeight, singleSelect)
+    listHeight = listHeight or 180
+    local hasRows = (type(configTable) == "table") and (type(dataSource) == "table")
+
+    -- 容器
+    local holder = Instance.new("Frame")
+    holder.Name = "FilterAccordion"
+    holder.Size = UDim2.new(1, 0, 0, M.rowH)
+    holder.AutomaticSize = Enum.AutomaticSize.Y
+    holder.BackgroundColor3 = Colors.RowNormal
+    holder.BorderSizePixel = 0
+    holder.ClipsDescendants = false
+    holder.Parent = parent
+
+    local holderLay = Instance.new("UIListLayout")
+    holderLay.SortOrder = Enum.SortOrder.LayoutOrder
+    holderLay.Parent = holder
+
+    -- 表头（整行可点）
+    local head = Instance.new("TextButton")
+    head.Name = "Head"
+    head.Size = UDim2.new(1, 0, 0, M.rowH)
+    head.BackgroundColor3 = Colors.RowNormal
+    head.BorderSizePixel = 0
+    head.Text = ""
+    head.AutoButtonColor = false
+    head.Parent = holder
+
+    local headPad = Instance.new("UIPadding")
+    headPad.PaddingLeft = UDim.new(0, M.rowPadLR)
+    headPad.PaddingRight = UDim.new(0, M.rowPadLR)
+    headPad.Parent = head
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -96, 1, 0)
+    title.BackgroundTransparency = 1
+    title.Font = Enum.Font.GothamBold
+    title.Text = titleText
+    title.TextColor3 = Colors.TextWhite
+    title.TextSize = M.rowTitleF
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = head
+
+    local countLabel = Instance.new("TextLabel")
+    countLabel.Size = UDim2.new(0, 62, 1, 0)
+    countLabel.Position = UDim2.new(1, -86, 0, 0)
+    countLabel.BackgroundTransparency = 1
+    countLabel.Font = Enum.Font.Gotham
+    countLabel.Text = "已选 0 项"
+    countLabel.TextColor3 = Colors.PurpleMuted
+    countLabel.TextSize = math.max(9, M.rowDescF)
+    countLabel.TextXAlignment = Enum.TextXAlignment.Right
+    countLabel.Parent = head
+
+    local arrow = Instance.new("TextLabel")
+    arrow.Size = UDim2.new(0, 20, 1, 0)
+    arrow.Position = UDim2.new(1, -22, 0, 0)
+    arrow.BackgroundTransparency = 1
+    arrow.Font = Enum.Font.GothamBold
+    arrow.Text = "▼"
+    arrow.TextColor3 = Colors.PurplePrimary
+    arrow.TextSize = M.rowTitleF
+    arrow.Parent = head
+
+    head.MouseEnter:Connect(function()
+        TweenService:Create(head, TweenInfo.new(0.15), { BackgroundColor3 = Colors.RowHover }):Play()
+    end)
+    head.MouseLeave:Connect(function()
+        TweenService:Create(head, TweenInfo.new(0.15), { BackgroundColor3 = Colors.RowNormal }):Play()
+    end)
+
+    -- 展开区
+    local content = Instance.new("Frame")
+    content.Name = "Content"
+    content.Size = UDim2.new(1, 0, 0, 0)
+    content.AutomaticSize = Enum.AutomaticSize.Y
+    content.BackgroundColor3 = Colors.InputBg
+    content.BorderSizePixel = 0
+    content.Visible = false
+    content.Parent = holder
+
+    local contentLay = Instance.new("UIListLayout")
+    contentLay.SortOrder = Enum.SortOrder.LayoutOrder
+    contentLay.Padding = UDim.new(0, 1)
+    contentLay.Parent = content
+
+    local contentPad = Instance.new("UIPadding")
+    contentPad.PaddingTop = UDim.new(0, 4)
+    contentPad.PaddingBottom = UDim.new(0, 6)
+    contentPad.PaddingLeft = UDim.new(0, 6)
+    contentPad.PaddingRight = UDim.new(0, 6)
+    contentPad.Parent = content
+
+    -- 每个手风琴自己的状态（互相零共享）
+    local openState = false
+    local built = false
+    local rowMap = {}
+    local searchBox = nil
+    local list = nil
+
+    local function CountSelected()
+        local n = 0
+        if type(configTable) ~= "table" then return 0 end
+        for _, v in pairs(configTable) do
+            if v == true then n = n + 1 end
+        end
+        return n
+    end
+
+    local function UpdateCount()
+        countLabel.Text = "已选 " .. CountSelected() .. " 项"
+    end
+
+    local function ApplySearch()
+        if not (built and searchBox and list) then return end
+        local q = normKey(searchBox.Text or "")
+        for _, r in pairs(rowMap) do
+            r.frame.Visible = (q == "" or string.find(r.query, q, 1, true) ~= nil)
+        end
+    end
+
+    -- 勾选状态一律从 configTable 实时读取（不缓存），外部改动后刷新即可恢复
+    local function RefreshRowStates()
+        -- 纯容器不碰自己的计数（表头合计由调用方聚合）
+        if not hasRows then return end
+        for key, r in pairs(rowMap) do
+            r.set(configTable[key] == true)
+        end
+        UpdateCount()
+    end
+
+    local function MakeRow(parentFrame, key, display)
+        local row = Instance.new("TextButton")
+        row.Size = UDim2.new(1, 0, 0, 22)
+        row.BackgroundColor3 = Colors.RowNormal
+        row.BackgroundTransparency = 0.35
+        row.BorderSizePixel = 0
+        row.Text = ""
+        row.AutoButtonColor = false
+        row.Parent = parentFrame
+        Instance.new("UICorner", row).CornerRadius = UDim.new(0, 3)
+
+        local box = Instance.new("Frame")
+        box.Size = UDim2.new(0, 12, 0, 12)
+        box.Position = UDim2.new(0, 6, 0.5, -6)
+        box.BackgroundColor3 = Colors.ControlBg
+        box.BorderSizePixel = 1
+        box.BorderColor3 = Colors.BorderSubtle
+        box.Parent = row
+        Instance.new("UICorner", box).CornerRadius = UDim.new(0, 2)
+
+        local mark = Instance.new("TextLabel")
+        mark.Size = UDim2.new(1, 0, 1, 0)
+        mark.BackgroundTransparency = 1
+        mark.Text = "✓"
+        mark.TextColor3 = Colors.TextWhite
+        mark.TextSize = 10
+        mark.Font = Enum.Font.GothamBold
+        mark.Parent = box
+
+        local lb = Instance.new("TextLabel")
+        lb.Size = UDim2.new(1, -30, 1, 0)
+        lb.Position = UDim2.new(0, 24, 0, 0)
+        lb.BackgroundTransparency = 1
+        lb.Text = display
+        lb.TextColor3 = Colors.TextWhite
+        lb.TextSize = math.max(10, M.rowDescF)
+        lb.Font = Enum.Font.Gotham
+        lb.TextXAlignment = Enum.TextXAlignment.Left
+        lb.TextTruncate = Enum.TextTruncate.AtEnd
+        lb.Parent = row
+
+        local state = configTable[key] == true
+        local function set(v)
+            state = v and true or false
+            box.BackgroundColor3 = state and Colors.PurpleAccent or Colors.ControlBg
+            mark.Visible = state
+            lb.TextColor3 = state and Colors.PurplePrimary or Colors.TextWhite
+        end
+        set(state)
+
+        row.MouseButton1Click:Connect(function()
+            local newState = not state
+            if singleSelect and newState then
+                -- 单选模式：先清空同组其它选项
+                local keys = {}
+                for k in pairs(configTable) do keys[#keys + 1] = k end
+                for _, k in ipairs(keys) do configTable[k] = nil end
+            end
+            -- 取消勾选时移除 key：空池就是「真·空表」，与 pairs 判空、JSON 存档完全一致
+            configTable[key] = newState and true or nil
+            if singleSelect then
+                pcall(RefreshRowStates)
+            else
+                set(newState)
+                UpdateCount()
+            end
+            if type(onChanged) == "function" then pcall(onChanged) end
+            DebounceSave()
+        end)
+
+        return { frame = row, set = set, key = key, query = normKey(display) }
+    end
+
+    local function BuildRows()
+        if built or not hasRows then return end
+        built = true
+        local i = 0
+        for _, opt in ipairs(dataSource) do
+            rowMap[opt.key] = MakeRow(list, opt.key, opt.display or tostring(opt.key))
+            i = i + 1
+            if i % 25 == 0 then task.wait() end
+        end
+        ApplySearch()
+        UpdateCount()
+    end
+
+    if hasRows then
+        -- 工具行：清空
+        local tools = Instance.new("Frame")
+        tools.Size = UDim2.new(1, 0, 0, 20)
+        tools.BackgroundTransparency = 1
+        tools.Parent = content
+
+        local clearBtn = Instance.new("TextButton")
+        clearBtn.Size = UDim2.new(0, 44, 0, 18)
+        clearBtn.Position = UDim2.new(0, 0, 0.5, -9)
+        clearBtn.BackgroundColor3 = Colors.ControlBg
+        clearBtn.Font = Enum.Font.GothamBold
+        clearBtn.Text = "清空"
+        clearBtn.TextColor3 = Colors.PurplePrimary
+        clearBtn.TextSize = math.max(9, M.btnF - 1)
+        clearBtn.BorderSizePixel = 0
+        clearBtn.AutoButtonColor = false
+        clearBtn.Parent = tools
+        Instance.new("UICorner", clearBtn).CornerRadius = UDim.new(0, 3)
+        clearBtn.MouseButton1Click:Connect(function()
+            local keys = {}
+            for k in pairs(configTable) do keys[#keys + 1] = k end
+            for _, k in ipairs(keys) do configTable[k] = nil end
+            pcall(RefreshRowStates)
+            if type(onChanged) == "function" then pcall(onChanged) end
+            DebounceSave()
+        end)
+
+        -- 搜索框
+        searchBox = Instance.new("TextBox")
+        searchBox.Size = UDim2.new(1, 0, 0, 24)
+        searchBox.BackgroundColor3 = Colors.ControlBg
+        searchBox.Font = Enum.Font.Gotham
+        searchBox.Text = ""
+        searchBox.PlaceholderText = "搜索鱼名 / 天气 / 岛屿（中英均可）"
+        searchBox.PlaceholderColor3 = Colors.TextMuted
+        searchBox.TextColor3 = Colors.TextWhite
+        searchBox.TextSize = math.max(10, M.rowDescF)
+        searchBox.TextXAlignment = Enum.TextXAlignment.Left
+        searchBox.ClearTextOnFocus = false
+        searchBox.BorderSizePixel = 0
+        searchBox.Parent = content
+        Instance.new("UICorner", searchBox).CornerRadius = UDim.new(0, 3)
+        local searchPad = Instance.new("UIPadding")
+        searchPad.PaddingLeft = UDim.new(0, 6)
+        searchPad.Parent = searchBox
+
+        -- 列表
+        list = Instance.new("ScrollingFrame")
+        list.Size = UDim2.new(1, 0, 0, listHeight)
+        list.BackgroundTransparency = 1
+        list.BorderSizePixel = 0
+        list.ScrollBarThickness = 3
+        list.ScrollBarImageColor3 = Colors.BorderSubtle
+        list.CanvasSize = UDim2.new(0, 0, 0, 0)
+        list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        list.ScrollingDirection = Enum.ScrollingDirection.Y
+        list.Parent = content
+        local listLay = Instance.new("UIListLayout")
+        listLay.SortOrder = Enum.SortOrder.LayoutOrder
+        listLay.Parent = list
+
+        searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+            if built then pcall(ApplySearch) end
+        end)
+    end
+
+    head.MouseButton1Click:Connect(function()
+        openState = not openState
+        content.Visible = openState
+        arrow.Text = openState and "▲" or "▼"
+        if openState then
+            if hasRows and not built then pcall(BuildRows) end
+            pcall(RefreshRowStates)
+        end
+    end)
+
+    UpdateCount()
+    if defaultOpen then
+        openState = true
+        content.Visible = true
+        arrow.Text = "▲"
+        if hasRows then pcall(BuildRows) end
+        pcall(RefreshRowStates)
+    end
+
+    return {
+        holder = holder,
+        head = head,
+        content = content,
+        refreshCount = UpdateCount,
+        refreshRows = RefreshRowStates,
+        _countLabel = countLabel,
+    }
+end
+
+-- ============================================================
+-- 【6.1】特殊组合数据初始化 / 旧版三池迁移
+-- ============================================================
+local groups = Config.FilterSpecialGroups
+if type(groups) ~= "table" then
+    groups = {}
+    Config.FilterSpecialGroups = groups
+end
+
+-- 规范化（JSON 里可能有缺字段/类型异常，保证后续 ipairs 安全）
+for i = 1, #groups do
+    local grp = groups[i]
+    if type(grp) ~= "table" then
+        grp = {}
+        groups[i] = grp
+    end
+    if type(grp.name) ~= "string" or grp.name == "" then grp.name = "特殊组合 " .. i end
+    grp.enabled = (grp.enabled ~= false)
+    if type(grp.desc) ~= "string" then grp.desc = "" end
+    if type(grp.fish) ~= "table" then grp.fish = {} end
+    if type(grp.weather) ~= "table" then grp.weather = {} end
+    if type(grp.island) ~= "table" then grp.island = {} end
+end
+
+-- 首次运行：把旧版三个特殊池迁移成「特殊组合 1」，老存档的选择不会丢
+if #groups == 0 then
+    groups[1] = {
+        name = "特殊组合 1",
+        desc = "",
+        enabled = true,
+        fish = CopyTrue(Config.FilterTargetSpecialFish),
+        weather = CopyTrue(Config.FilterTargetWeather),
+        island = CopyTrue(Config.FilterTargetIsland),
+    }
+end
+
+-- 岛屿改为单选：对所有组合（含旧存档迁移）做一次规范化
+for i = 1, #groups do pcall(EnforceSingleIsland, groups[i]) end
+
+-- ============================================================
+-- 【7】UI 构建
+-- ============================================================
+createCategoryHeader(tabFishing, "不是选中的鱼就自动放杆").LayoutOrder = 40
+local filterCard = createCardGroup(tabFishing)
+filterCard.LayoutOrder = 41
+
+-- 总开关：不是选中的鱼就自动放杆（取消本次钓鱼）
+-- 普通模式只看「鱼白名单」，不需要在特殊设置里选天气；只有特殊组合才依赖天气（命中时才参与判定）
+createToggleRow(filterCard, "不是选中鱼就自动放杆",
+    "选中鱼之外自动取消本次钓鱼（特殊组才需要选天气）",
+    Config.AutoFilterFish,
+    function(v)
+        Config.AutoFilterFish = v
+        if not v then
+            pcall(ExitFilterMode)   -- 关闭时恢复正常位置，不残留筛选状态
+        end
+        pcall(DebounceSave)
+    end)
+
+-- 手风琴：全局鱼白名单（所有模式生效）
+local accNormal = MakeWhitelistAccordion(
+    filterCard,
+    "鱼白名单（所有模式生效）",
+    Config.FilterTargetFish,
+    fishOptions,
+    false, nil, 200
+)
+table.insert(rowSearchIndex, { frame = accNormal.holder, query = string.lower("鱼 白名单 定向钓鱼 normal") })
+
+-- 特殊设置：外层手风琴（内含「新建特殊组合」+ 组合列表）
+local specialSettings = MakeWhitelistAccordion(filterCard, "特殊设置", nil, nil, false, nil, 0)
+table.insert(rowSearchIndex, { frame = specialSettings.holder, query = string.lower("特殊设置 特殊组合 天气 岛屿 鱼 special") })
+
+local combosHolder = Instance.new("Frame")
+combosHolder.Name = "SpecialCombos"
+combosHolder.LayoutOrder = 1
+combosHolder.Size = UDim2.new(1, 0, 0, 0)
+combosHolder.AutomaticSize = Enum.AutomaticSize.Y
+combosHolder.BackgroundTransparency = 1
+combosHolder.Parent = specialSettings.content
+local combosLay = Instance.new("UIListLayout")
+combosLay.SortOrder = Enum.SortOrder.LayoutOrder
+combosLay.Parent = combosHolder
+
+local groupUIs = {}
+
+local function UpdateSpecialSettingsCount()
+    if specialSettings._countLabel then
+        specialSettings._countLabel.Text = (#Config.FilterSpecialGroups) .. " 个组合"
+    end
+end
+specialSettings.refreshCount = UpdateSpecialSettingsCount
+
+local function RefreshDeleteStates()
+    local only = (#Config.FilterSpecialGroups <= 1)
+    for i = 1, #groupUIs do
+        local ui = groupUIs[i]
+        if ui.holder and ui.holder.Parent then
+            ui.delBtn.TextColor3 = only and Colors.TextMuted or Colors.AccentRed
+            ui.delBtn.BackgroundTransparency = only and 0.5 or 0
+        end
+    end
+end
+
+-- 构建一个特殊组合：表头（名字 + 启用开关 + 计数 + 箭头）
+-- 展开区：名字 / 简介 + 天气（必选）+ 岛屿（可选）+ 鱼白名单
+local function BuildGroupUI(grp, order)
+    local holder = Instance.new("Frame")
+    holder.Name = "SpecialCombo"
+    holder.LayoutOrder = order or 1
+    holder.Size = UDim2.new(1, 0, 0, M.rowH)
+    holder.AutomaticSize = Enum.AutomaticSize.Y
+    holder.BackgroundColor3 = Colors.RowNormal
+    holder.BorderSizePixel = 0
+    holder.ClipsDescendants = false
+    holder.Parent = combosHolder
+
+    local holderLay = Instance.new("UIListLayout")
+    holderLay.SortOrder = Enum.SortOrder.LayoutOrder
+    holderLay.Parent = holder
+
+    -- 表头
+    local head = Instance.new("TextButton")
+    head.Size = UDim2.new(1, 0, 0, M.rowH)
+    head.BackgroundColor3 = Colors.RowNormal
+    head.BorderSizePixel = 0
+    head.Text = ""
+    head.AutoButtonColor = false
+    head.Parent = holder
+
+    local headPad = Instance.new("UIPadding")
+    headPad.PaddingLeft = UDim.new(0, M.rowPadLR)
+    headPad.PaddingRight = UDim.new(0, M.rowPadLR)
+    headPad.Parent = head
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -152, 1, 0)
+    title.BackgroundTransparency = 1
+    title.Font = Enum.Font.GothamBold
+    title.Text = grp.name
+    title.TextColor3 = Colors.TextWhite
+    title.TextSize = M.rowTitleF
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.TextTruncate = Enum.TextTruncate.AtEnd
+    title.Parent = head
+
+    -- 组合启用开关（小尺寸，点它不会展开/收起）
+    local enabledBtn = Instance.new("TextButton")
+    enabledBtn.Size = UDim2.new(0, 30, 0, 16)
+    enabledBtn.Position = UDim2.new(1, -120, 0.5, -8)
+    enabledBtn.BackgroundColor3 = Colors.ControlBg
+    enabledBtn.Text = ""
+    enabledBtn.BorderSizePixel = 0
+    enabledBtn.AutoButtonColor = false
+    enabledBtn.Parent = head
+    Instance.new("UICorner", enabledBtn).CornerRadius = UDim.new(1, 0)
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0, 12, 0, 12)
+    knob.Position = UDim2.new(0, 2, 0.5, -6)
+    knob.BackgroundColor3 = Colors.TextWhite
+    knob.BorderSizePixel = 0
+    knob.Parent = enabledBtn
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+    local countLabel = Instance.new("TextLabel")
+    countLabel.Size = UDim2.new(0, 62, 1, 0)
+    countLabel.Position = UDim2.new(1, -86, 0, 0)
+    countLabel.BackgroundTransparency = 1
+    countLabel.Font = Enum.Font.Gotham
+    countLabel.Text = "已选 0 项"
+    countLabel.TextColor3 = Colors.PurpleMuted
+    countLabel.TextSize = math.max(9, M.rowDescF)
+    countLabel.TextXAlignment = Enum.TextXAlignment.Right
+    countLabel.Parent = head
+
+    local arrow = Instance.new("TextLabel")
+    arrow.Size = UDim2.new(0, 20, 1, 0)
+    arrow.Position = UDim2.new(1, -22, 0, 0)
+    arrow.BackgroundTransparency = 1
+    arrow.Font = Enum.Font.GothamBold
+    arrow.Text = "▼"
+    arrow.TextColor3 = Colors.PurplePrimary
+    arrow.TextSize = M.rowTitleF
+    arrow.Parent = head
+
+    local function RefreshEnableVisual()
+        local on = grp.enabled and true or false
+        enabledBtn.BackgroundColor3 = on and Colors.PurpleAccent or Colors.ControlBg
+        knob.Position = on and UDim2.new(1, -14, 0.5, -6) or UDim2.new(0, 2, 0.5, -6)
+        title.TextColor3 = on and Colors.TextWhite or Colors.TextMuted
+        countLabel.TextColor3 = on and Colors.PurpleMuted or Colors.TextMuted
+    end
+    RefreshEnableVisual()
+
+    local lastEnableToggle = 0
+    enabledBtn.MouseButton1Click:Connect(function()
+        lastEnableToggle = tick()
+        grp.enabled = not grp.enabled
+        RefreshEnableVisual()
+        DebounceSave()
+    end)
+
+    head.MouseEnter:Connect(function()
+        TweenService:Create(head, TweenInfo.new(0.15), { BackgroundColor3 = Colors.RowHover }):Play()
+    end)
+    head.MouseLeave:Connect(function()
+        TweenService:Create(head, TweenInfo.new(0.15), { BackgroundColor3 = Colors.RowNormal }):Play()
+    end)
+
+    -- 展开区
+    local content = Instance.new("Frame")
+    content.Name = "Content"
+    content.Size = UDim2.new(1, 0, 0, 0)
+    content.AutomaticSize = Enum.AutomaticSize.Y
+    content.BackgroundColor3 = Colors.InputBg
+    content.BorderSizePixel = 0
+    content.Visible = false
+    content.Parent = holder
+
+    local contentLay = Instance.new("UIListLayout")
+    contentLay.SortOrder = Enum.SortOrder.LayoutOrder
+    contentLay.Padding = UDim.new(0, 1)
+    contentLay.Parent = content
+
+    local contentPad = Instance.new("UIPadding")
+    contentPad.PaddingTop = UDim.new(0, 4)
+    contentPad.PaddingBottom = UDim.new(0, 6)
+    contentPad.PaddingLeft = UDim.new(0, 6)
+    contentPad.PaddingRight = UDim.new(0, 6)
+    contentPad.Parent = content
+
+    local function UpdateCount()
+        local n = CountTrue(grp.fish) + CountTrue(grp.weather) + CountTrue(grp.island)
+        countLabel.Text = "已选 " .. n .. " 项"
+    end
+
+    -- 组合名字（可修改）/ 删除
+    local nameRow = Instance.new("Frame")
+    nameRow.LayoutOrder = 1
+    nameRow.Size = UDim2.new(1, 0, 0, 24)
+    nameRow.BackgroundTransparency = 1
+    nameRow.Parent = content
+
+    local nameBox = Instance.new("TextBox")
+    nameBox.Size = UDim2.new(1, -56, 0, 24)
+    nameBox.BackgroundColor3 = Colors.ControlBg
+    nameBox.Font = Enum.Font.Gotham
+    nameBox.Text = grp.name
+    nameBox.PlaceholderText = "组合名字"
+    nameBox.PlaceholderColor3 = Colors.TextMuted
+    nameBox.TextColor3 = Colors.TextWhite
+    nameBox.TextSize = math.max(10, M.rowDescF)
+    nameBox.TextXAlignment = Enum.TextXAlignment.Left
+    nameBox.ClearTextOnFocus = false
+    nameBox.BorderSizePixel = 0
+    nameBox.Parent = nameRow
+    Instance.new("UICorner", nameBox).CornerRadius = UDim.new(0, 3)
+    local namePad = Instance.new("UIPadding")
+    namePad.PaddingLeft = UDim.new(0, 6)
+    namePad.Parent = nameBox
+
+    local delBtn = Instance.new("TextButton")
+    delBtn.Size = UDim2.new(0, 48, 0, 20)
+    delBtn.Position = UDim2.new(1, -48, 0.5, -10)
+    delBtn.BackgroundColor3 = Colors.ControlBg
+    delBtn.Font = Enum.Font.GothamBold
+    delBtn.Text = "删除组合"
+    delBtn.TextColor3 = Colors.AccentRed
+    delBtn.TextSize = math.max(9, M.btnF - 1)
+    delBtn.BorderSizePixel = 0
+    delBtn.AutoButtonColor = false
+    delBtn.Parent = nameRow
+    Instance.new("UICorner", delBtn).CornerRadius = UDim.new(0, 3)
+
+    -- 简介（可修改）
+    local descRow = Instance.new("Frame")
+    descRow.LayoutOrder = 2
+    descRow.Size = UDim2.new(1, 0, 0, 24)
+    descRow.BackgroundTransparency = 1
+    descRow.Parent = content
+
+    local descBox = Instance.new("TextBox")
+    descBox.Size = UDim2.new(1, 0, 0, 24)
+    descBox.BackgroundColor3 = Colors.ControlBg
+    descBox.Font = Enum.Font.Gotham
+    descBox.Text = type(grp.desc) == "string" and grp.desc or ""
+    descBox.PlaceholderText = "简介（可留空）"
+    descBox.PlaceholderColor3 = Colors.TextMuted
+    descBox.TextColor3 = Colors.TextWhite
+    descBox.TextSize = math.max(10, M.rowDescF)
+    descBox.TextXAlignment = Enum.TextXAlignment.Left
+    descBox.ClearTextOnFocus = false
+    descBox.BorderSizePixel = 0
+    descBox.Parent = descRow
+    Instance.new("UICorner", descBox).CornerRadius = UDim.new(0, 3)
+    local descPad = Instance.new("UIPadding")
+    descPad.PaddingLeft = UDim.new(0, 6)
+    descPad.Parent = descBox
+
+    -- 搜索索引（名字/简介改了会同步更新 query）
+    local searchEntry = {
+        frame = holder,
+        query = string.lower("特殊设置 特殊组合 特殊鱼 天气 岛屿 " .. tostring(grp.name) .. " " .. tostring(grp.desc or "") .. " special"),
+    }
+    table.insert(rowSearchIndex, searchEntry)
+
+    nameBox.FocusLost:Connect(function()
+        local v = nameBox.Text:match("^%s*(.-)%s*$") or ""
+        if v == "" then v = grp.name end
+        grp.name = v
+        nameBox.Text = v
+        title.Text = v
+        searchEntry.query = string.lower("特殊设置 特殊组合 特殊鱼 天气 岛屿 " .. v .. " " .. tostring(grp.desc or "") .. " special")
+        DebounceSave()
+    end)
+
+    descBox.FocusLost:Connect(function()
+        local d = descBox.Text:match("^%s*(.-)%s*$") or ""
+        grp.desc = d
+        descBox.Text = d
+        searchEntry.query = string.lower("特殊设置 特殊组合 特殊鱼 天气 岛屿 " .. tostring(grp.name) .. " " .. d .. " special")
+        DebounceSave()
+    end)
+
+    delBtn.MouseButton1Click:Connect(function()
+        local list = Config.FilterSpecialGroups
+        if #list <= 1 then return end   -- 至少保留 1 个组合
+        for i = 1, #list do
+            if list[i] == grp then
+                table.remove(list, i)
+                break
+            end
+        end
+        if filterState.matchedGroups then
+            for i = #filterState.matchedGroups, 1, -1 do
+                if filterState.matchedGroups[i] == grp then
+                    table.remove(filterState.matchedGroups, i)
+                end
+            end
+        end
+        for i = #groupUIs, 1, -1 do
+            if groupUIs[i].holder == holder then table.remove(groupUIs, i) end
+        end
+        -- 同步移除主搜索索引，避免搜索框操作已销毁的 Frame
+        for i = #rowSearchIndex, 1, -1 do
+            if rowSearchIndex[i].frame == holder then table.remove(rowSearchIndex, i) end
+        end
+        holder:Destroy()
+        pcall(RefreshDeleteStates)
+        pcall(UpdateSpecialSettingsCount)
+        DebounceSave()
+    end)
+
+    -- 三个子手风琴：天气（必选，多选）→ 岛屿（单选，选中后天气命中自动传送）→ 鱼白名单
+    local subWeather = MakeWhitelistAccordion(content, "天气白名单（必选）", grp.weather, weatherOptions, false, UpdateCount, 160)
+    local subIsland = MakeWhitelistAccordion(content, "岛屿（单选，天气命中自动传送）", grp.island, islandOptions, false, UpdateCount, 160, true)
+    local subFish = MakeWhitelistAccordion(content, "鱼白名单", grp.fish, fishOptions, false, UpdateCount, 200)
+    subWeather.holder.LayoutOrder = 3
+    subIsland.holder.LayoutOrder = 4
+    subFish.holder.LayoutOrder = 5
+
+    head.MouseButton1Click:Connect(function()
+        -- 防止点「组合启用开关」时同时触发展开/收起
+        if tick() - lastEnableToggle < 0.25 then return end
+        content.Visible = not content.Visible
+        arrow.Text = content.Visible and "▲" or "▼"
+        if content.Visible then
+            pcall(subWeather.refreshRows)
+            pcall(subIsland.refreshRows)
+            pcall(subFish.refreshRows)
+            UpdateCount()
+        end
+    end)
+
+    UpdateCount()
+    table.insert(groupUIs, { holder = holder, delBtn = delBtn })
+end
+
+-- 新建特殊组合弹窗（名字 + 简介）
+local showCreateModal = nil
+local function EnsureCreateModal()
+    local root = Instance.new("TextButton")   -- 遮罩：吞掉点击，防止误触背后 UI
+    root.Name = "ComboCreateModal"
+    root.Size = UDim2.new(1, 0, 1, 0)
+    root.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    root.BackgroundTransparency = 0.45
+    root.Text = ""
+    root.AutoButtonColor = false
+    root.BorderSizePixel = 0
+    root.ZIndex = 5000
+    root.Visible = false
+    root.Parent = screenGui
+    table.insert(cleanUpInstances, root)
+
+    local card = Instance.new("Frame")
+    card.Size = UDim2.new(0, 300, 0, 166)
+    card.Position = UDim2.new(0.5, -150, 0.5, -83)
+    card.BackgroundColor3 = Colors.RowNormal
+    card.BorderSizePixel = 0
+    card.ZIndex = 5001
+    card.Parent = root
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 6)
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Colors.BorderPurple
+    stroke.Thickness = 1
+    stroke.Parent = card
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -24, 0, 22)
+    title.Position = UDim2.new(0, 12, 0, 10)
+    title.BackgroundTransparency = 1
+    title.Font = Enum.Font.GothamBold
+    title.Text = "新建特殊组合"
+    title.TextColor3 = Colors.PurplePrimary
+    title.TextSize = 13
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.ZIndex = 5002
+    title.Parent = card
+
+    local nameBox = Instance.new("TextBox")
+    nameBox.Size = UDim2.new(1, -24, 0, 30)
+    nameBox.Position = UDim2.new(0, 12, 0, 40)
+    nameBox.BackgroundColor3 = Colors.ControlBg
+    nameBox.Font = Enum.Font.Gotham
+    nameBox.Text = ""
+    nameBox.PlaceholderText = "组合名字"
+    nameBox.PlaceholderColor3 = Colors.TextMuted
+    nameBox.TextColor3 = Colors.TextWhite
+    nameBox.TextSize = 12
+    nameBox.TextXAlignment = Enum.TextXAlignment.Left
+    nameBox.ClearTextOnFocus = false
+    nameBox.BorderSizePixel = 0
+    nameBox.ZIndex = 5002
+    nameBox.Parent = card
+    Instance.new("UICorner", nameBox).CornerRadius = UDim.new(0, 3)
+    local namePad = Instance.new("UIPadding")
+    namePad.PaddingLeft = UDim.new(0, 8)
+    namePad.Parent = nameBox
+
+    local descBox = Instance.new("TextBox")
+    descBox.Size = UDim2.new(1, -24, 0, 30)
+    descBox.Position = UDim2.new(0, 12, 0, 76)
+    descBox.BackgroundColor3 = Colors.ControlBg
+    descBox.Font = Enum.Font.Gotham
+    descBox.Text = ""
+    descBox.PlaceholderText = "简介（可留空）"
+    descBox.PlaceholderColor3 = Colors.TextMuted
+    descBox.TextColor3 = Colors.TextWhite
+    descBox.TextSize = 12
+    descBox.TextXAlignment = Enum.TextXAlignment.Left
+    descBox.ClearTextOnFocus = false
+    descBox.BorderSizePixel = 0
+    descBox.ZIndex = 5002
+    descBox.Parent = card
+    Instance.new("UICorner", descBox).CornerRadius = UDim.new(0, 3)
+    local descPad = Instance.new("UIPadding")
+    descPad.PaddingLeft = UDim.new(0, 8)
+    descPad.Parent = descBox
+
+    local cancelBtn = Instance.new("TextButton")
+    cancelBtn.Size = UDim2.new(0, 76, 0, 30)
+    cancelBtn.Position = UDim2.new(0, 62, 0, 120)
+    cancelBtn.BackgroundColor3 = Colors.ControlBg
+    cancelBtn.Font = Enum.Font.GothamBold
+    cancelBtn.Text = "取消"
+    cancelBtn.TextColor3 = Colors.TextMuted
+    cancelBtn.TextSize = 11
+    cancelBtn.BorderSizePixel = 0
+    cancelBtn.AutoButtonColor = false
+    cancelBtn.ZIndex = 5002
+    cancelBtn.Parent = card
+    Instance.new("UICorner", cancelBtn).CornerRadius = UDim.new(0, 3)
+
+    local createBtn = Instance.new("TextButton")
+    createBtn.Size = UDim2.new(0, 76, 0, 30)
+    createBtn.Position = UDim2.new(0, 162, 0, 120)
+    createBtn.BackgroundColor3 = Colors.PurpleDark
+    createBtn.Font = Enum.Font.GothamBold
+    createBtn.Text = "创建"
+    createBtn.TextColor3 = Colors.TextWhite
+    createBtn.TextSize = 11
+    createBtn.BorderSizePixel = 0
+    createBtn.AutoButtonColor = false
+    createBtn.ZIndex = 5002
+    createBtn.Parent = card
+    Instance.new("UICorner", createBtn).CornerRadius = UDim.new(0, 3)
+
+    local function CloseModal()
+        pcall(function() nameBox:ReleaseFocus() end)
+        pcall(function() descBox:ReleaseFocus() end)
+        root.Visible = false
+        nameBox.Text = ""
+        descBox.Text = ""
+    end
+
+    showCreateModal = function()
+        root.Visible = true
+        pcall(function() nameBox:CaptureFocus() end)
+    end
+
+    cancelBtn.MouseButton1Click:Connect(CloseModal)
+
+    createBtn.MouseButton1Click:Connect(function()
+        local nm = nameBox.Text:match("^%s*(.-)%s*$") or ""
+        if nm == "" then nm = "特殊组合 " .. (#Config.FilterSpecialGroups + 1) end
+        local ds = descBox.Text:match("^%s*(.-)%s*$") or ""
+        local grp = {
+            name = nm,
+            desc = ds,
+            enabled = true,
+            fish = {},
+            weather = {},
+            island = {},
+        }
+        table.insert(Config.FilterSpecialGroups, grp)
+        BuildGroupUI(grp, #Config.FilterSpecialGroups)
+        pcall(RefreshDeleteStates)
+        pcall(UpdateSpecialSettingsCount)
+        CloseModal()
+        DebounceSave()
+    end)
+end
+EnsureCreateModal()
+
+-- 新建特殊组合：特殊设置展开区顶部的入口行
+local addComboBtn = createButtonRow(specialSettings.content, "新建特殊组合", "点击后弹窗填写名字和简介", "+ 特殊组合", function()
+    if showCreateModal then showCreateModal() end
+end)
+addComboBtn.Parent.LayoutOrder = 0
+
+-- 构建已有特殊组合（首个组合由旧版三池迁移而来）
+for i = 1, #Config.FilterSpecialGroups do
+    BuildGroupUI(Config.FilterSpecialGroups[i], i)
+end
+pcall(RefreshDeleteStates)
+pcall(UpdateSpecialSettingsCount)
+
+-- ============================================================
+-- 【8】Heartbeat：0.5s 节流检查
+-- ============================================================
+table.insert(activeConnections, RunService.Heartbeat:Connect(function()
+    if not isRunning or not Config.AutoFilterFish then return end
+    local now = tick()
+    if now - filterState.lastCheck < TICK_INTERVAL then return end
+    filterState.lastCheck = now
+    pcall(TickFilter)
+end))
+end
+-- ============ 定向钓鱼 END ============
+
+createCategoryHeader(tabBoss, "无名章鱼寄生体(隐藏Boss)")
+local octoCard = createCardGroup(tabBoss)
+
+createToggleRow(octoCard, "自动玩小游戏（节奏机器人）", "机器人自动安全打拍子", Config.OctoAutoMinigame, function(v) Config.OctoAutoMinigame = v end)
+createSliderRow(octoCard, "节奏命中率（Accuracy %）", "打拍子准确度（92% - 96% 保证账号绝对安全）", 70, 100, Config.RhythmAccuracy or 100, false, "%", function(v)
+    Config.RhythmAccuracy = v
+end)
+
+createButtonRow(fishCard, "🧪 测试章鱼小游戏（A-S-D）", "打开 3 轨 A-S-D 界面，生成测试音符以验证机器人立即完美击中", "点击测试", function()
+    task.spawn(function()
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        local mainGui = pg and pg:FindFirstChild("MainGui")
+        local fishing = mainGui and mainGui:FindFirstChild("Fishing")
+        local rhythm = (fishing and fishing:FindFirstChild("Rhythm")) or (mainGui and mainGui:FindFirstChild("Rhythm")) or (pg and pg:FindFirstChild("Rhythm", true))
+        if not rhythm then
+            ShowNotification("测试错误", "游戏中找不到 Rhythm 界面！", "WARN", 4)
+            return
+        end
+        local origFVis = fishing and fishing.Visible
+        local origRVis = rhythm.Visible
+        if fishing then fishing.Visible = true end
+        rhythm.Visible = true
+        ShowNotification("🧪 测试中", "A-S-D 界面已打开！正在生成测试音符...", "SUCCESS", 3)
+
+        local lanes = {
+            { name = "ProgressionA", key = "A", keyCode = Enum.KeyCode.A },
+            { name = "ProgressionS", key = "S", keyCode = Enum.KeyCode.S },
+            { name = "ProgressionD", key = "D", keyCode = Enum.KeyCode.D }
+        }
+
+        for _, laneData in ipairs(lanes) do
+            local prog = rhythm:FindFirstChild(laneData.name)
+            if prog and prog.Visible then
+                local bFrame = prog:FindFirstChild("BarFrame")
+                local btn = prog:FindFirstChild("Button")
+                local nFrame = prog:FindFirstChild("NoteFrame")
+                local expImg = prog:FindFirstChild("EXP")
+
+                local testNote = Instance.new("Frame")
+                testNote.Name = "TestNote_" .. laneData.key
+                testNote.Size = (nFrame and nFrame.Size) or UDim2.new(0.8, 0, 0, 24)
+                testNote.Position = UDim2.new(0.1, 0, 0, 0)
+                testNote.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+                testNote.BorderSizePixel = 0
+                testNote.ZIndex = 100
+                testNote.Parent = prog
+                Instance.new("UICorner", testNote).CornerRadius = UDim.new(0, 4)
+
+                local targetPos = (bFrame and bFrame.Position) or UDim2.new(0.1, 0, 0.8, 0)
+                local tween = TweenService:Create(testNote, TweenInfo.new(1.1, Enum.EasingStyle.Linear), { Position = targetPos })
+                tween:Play()
+
+                task.delay(0.9, function()
+                    if testNote and testNote.Parent then
+                        if VirtualInputManager and laneData.keyCode then
+                            pcall(function()
+                                VirtualInputManager:SendKeyEvent(true, laneData.keyCode, false, game)
+                                task.delay(0.02, function() VirtualInputManager:SendKeyEvent(false, laneData.keyCode, false, game) end)
+                            end)
+                        end
+                        if VirtualInputManager and btn and btn:IsA("GuiButton") then
+                            pcall(function()
+                                local bp = btn.AbsolutePosition
+                                local bs = btn.AbsoluteSize
+                                VirtualInputManager:SendMouseButtonEvent(bp.X + bs.X * 0.5, bp.Y + bs.Y * 0.5, 0, true, game, 1)
+                                task.delay(0.02, function() VirtualInputManager:SendMouseButtonEvent(bp.X + bs.X * 0.5, bp.Y + bs.Y * 0.5, 0, false, game, 1) end)
+                            end)
+                        end
+                        if btn and btn:IsA("GuiButton") then
+                            pcall(function()
+                                if firesignal then
+                                    if btn.Activated then firesignal(btn.Activated) end
+                                    if btn.MouseButton1Down then firesignal(btn.MouseButton1Down) end
+                                    if btn.MouseButton1Click then firesignal(btn.MouseButton1Click) end
+                                end
+                            end)
+                        end
+                        if expImg and expImg:IsA("ImageLabel") then
+                            pcall(function()
+                                expImg.Visible = true
+                                task.delay(0.2, function() expImg.Visible = false end)
+                            end)
+                        end
+                        testNote.BackgroundColor3 = Color3.fromRGB(80, 255, 120)
+                        ShowNotification("✨ PERFECT!", "机器人已自动按下 [" .. laneData.key .. "] 轨道的音符！", "SUCCESS", 2)
+                        task.delay(0.3, function() if testNote then testNote:Destroy() end end)
+                    end
+                end)
+                task.wait(0.5)
+            end
+        end
+
+        task.wait(2.2)
+        if fishing then fishing.Visible = origFVis end
+        rhythm.Visible = origRVis
+        ShowNotification("🎉 测试完成", "已验证机器人 100% 自动击中音符成功！", "SUCCESS", 4)
+    end)
+end)
+createButtonRow(octoCard, "传送到章鱼寄生体", "传送到海洋隐藏Boss浮标", "传送", function()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if root then
+        root.CFrame = CFrame.new(1608.2, 5.0, -218.3)
+        ShowNotification("已传送", "已到达无名章鱼寄生体海洋浮标！", "SUCCESS")
+    end
+end)
+createButtonRow(octoCard, "传送到渔夫之地", "传送到地下渔夫领域", "传送", function()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if root then
+        root.CFrame = CFrame.new(112.5, -330.0, -30.8)
+        ShowNotification("已传送", "已到达地下渔夫之地！", "SUCCESS")
+    end
+end)
+
+createCategoryHeader(tabBoss, "恩佐 龙钓海")
+local bossFarmCard = createCardGroup(tabBoss)
+createToggleRow(bossFarmCard, "自动刷Boss(Enzo)", "持续召唤并击败Enzo", Config.AutoFarmBoss, function(v) Config.AutoFarmBoss = v end)
+createDropdownRow(bossFarmCard, "Boss难度", "选择要刷的Boss难度（简单/困难）", {"简单", "困难"}, Config.BossDifficulty, function(v) Config.BossDifficulty = v end)
+createToggleRow(bossFarmCard, "自动刷隐藏Boss", "自动制作无名鱼饵，召唤并击杀", Config.AutoFarmSecretBoss, function(v) Config.AutoFarmSecretBoss = v end)
+
+createToggleRow(bossFarmCard, "自动恩佐/龙钓海小游戏", "极小概率封号", Config.AutoEnzoMinigame, function(v) Config.AutoEnzoMinigame = v end)
+
+createButtonRow(bossFarmCard, "传送到Enzo", "传送到Enzo竞技场", "传送", function()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if root then
+        root.CFrame = CFrame.new(-115.3, 9.2, 1349.5)
+        ShowNotification("已传送", "已到达Enzo！", "SUCCESS")
+    end
+end)
+
+createButtonRow(bossFarmCard, "传送到龙钓海", "传送到龙钓海", "传送", function()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if root then
+        root.CFrame = CFrame.new(-2884.75, 32.17, 1346.83)
+        ShowNotification("已传送", "已到达龙钓海！", "SUCCESS")
+    end
+end)
+
+createCategoryHeader(tabGod, "神灵交互与状态")
+local godCard = createCardGroup(tabGod)
+
+createButtonRow(godCard, "检查神灵状态", "检查活跃祝福(黄/蓝/绿)", "检查状态", function()
+    local pData = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild(LocalPlayer.UserId)
+    if pData and pData:FindFirstChild("GodSpirit") then
+        local y = pData.GodSpirit:FindFirstChild("Yellow") and pData.GodSpirit.Yellow.Value or false
+        local b = pData.GodSpirit:FindFirstChild("Blue") and pData.GodSpirit.Blue.Value or false
+        local g = pData.GodSpirit:FindFirstChild("Green") and pData.GodSpirit.Green.Value or false
+        local msg = string.format("黄色: %s | 蓝色: %s | 绿色: %s", y and "活跃" or "关闭", b and "活跃" or "关闭", g and "活跃" or "关闭")
+        ShowNotification("神灵状态", msg, "SUCCESS", 6)
+    else        ShowNotification("神灵", "无法读取神灵数据。", "WARN")
+    end
+end)
+
+createToggleRow(godCard, "自动祈祷神灵", "在神灵祭坛时自动祈祷", Config.AutoPrayGodSpirit, function(v) Config.AutoPrayGodSpirit = v end)
+
+createButtonRow(godCard, "传送到神灵祭坛", "传送到神灵祭坛(战场岛)", "传送", function()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if root then
+        local spirit = (Workspace:FindFirstChild("NPC") and Workspace.NPC:FindFirstChild("Spirit")) or (Workspace:FindFirstChild("NPC") and Workspace.NPC:FindFirstChild("God"))
+        if spirit then
+            root.CFrame = spirit:GetPivot() + Vector3.new(0, 3, 5)
+            ShowNotification("神灵", "已传送到神灵祭坛！", "SUCCESS")
+        else
+            root.CFrame = CFrame.new(1245.7, 19.3, -133.4)
+            ShowNotification("神灵", "已传送到神社位置！", "SUCCESS")
+        end
+    end
+end)
+
+local function TriggerPrompt(prompt)
+    if fireproximityprompt then
+        fireproximityprompt(prompt)
+    else
+        pcall(function()
+            prompt:InputHoldBegin()
+            task.wait(prompt.HoldDuration + 0.05)
+            prompt:InputHoldEnd()
+        end)
+    end
+end
+
+createButtonRow(godCard, "立即祈祷神灵", "与神灵祭坛提示交互", "祈祷", function()
+    local sp = (Workspace:FindFirstChild("NPC") and Workspace.NPC:FindFirstChild("Spirit")) or (Workspace:FindFirstChild("NPC") and Workspace.NPC:FindFirstChild("God"))
+    if sp then
+        local found = false
+        for _, d in ipairs(sp:GetDescendants()) do
+            if d:IsA("ProximityPrompt") then
+                TriggerPrompt(d)
+                found = true
+            end
+        end
+        if found then
+            ShowNotification("神灵", "已在祭坛祈祷神灵！", "SUCCESS")
+        else
+            ShowNotification("神灵", "在神灵上未找到近距离提示。", "WARN")
+        end
+    else
+        ShowNotification("神灵", "此服务器中神灵未生成。", "WARN")
+    end
+end)
+
+-- ============================================================
+-- 🔁 服务器跳转引擎（移植自源码 secretBossState.ServerHop / HandleTeleportError）
+-- 选服：最多翻 4 页（每页 100 个）→ 只挑空位 ≥ 2 的服务器 → 随机选一个
+-- 规避：当前 JobId + 本会话已跳过的服务器（避免反复回到同一个服）
+-- 容错：TeleportInitFailed / GuiService 报错 → 自动换服务器重试（最多 3 次）
+-- ============================================================
+
+-- ===== 兼容版 HttpGet =====
+local function HttpGet(url)
+    -- 1. 优先 game:HttpGet
+    if game and game.HttpGet then
+        local ok, res = pcall(function() return game.HttpGet(game, url) end)
+        if ok and type(res) == "string" and #res > 0 then return res end
+    end
+    -- 2. request (Delta / Fluxus / KRNL 等)
+    if request then
+        local ok, res = pcall(function() return request({Url = url, Method = "GET"}).Body end)
+        if ok and type(res) == "string" and #res > 0 then return res end
+    end
+    -- 3. http_request
+    if http_request then
+        local ok, res = pcall(function() return http_request({Url = url, Method = "GET"}).Body end)
+        if ok and type(res) == "string" and #res > 0 then return res end
+    end
+    -- 4. syn.request
+    if syn and syn.request then
+        local ok, res = pcall(function() return syn.request({Url = url, Method = "GET"}).Body end)
+        if ok and type(res) == "string" and #res > 0 then return res end
+    end
+    return nil
+end
+
+-- 记录已访问服务器（上限 80，防止无限增长）
+function HopState.RememberServer(jobId)
+    if not jobId or jobId == "" then return end
+    if not table.find(HopState.visited, jobId) then
+        table.insert(HopState.visited, jobId)
+    end
+    if #HopState.visited > 80 then
+        table.remove(HopState.visited, 1)
+    end
+end
+
+-- 排队“跳服后重开本脚本”（源码用固定下载地址；缩小版只在注入器提供 IdenticalScriptUrl 时可用）
+function HopState.QueueScriptOnTeleport()
+    local qot = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
+    if not qot then return false end
+    local scriptUrl = (getgenv and getgenv().IdenticalScriptUrl) or nil
+    if type(scriptUrl) ~= "string" or scriptUrl == "" then return false end
+    local code = string.format('task.spawn(function() pcall(function() loadstring(game:HttpGet("%s"))() end) end)', scriptUrl)
+    return (pcall(qot, code))
+end
+
+-- 持久化“正在找 NPC / 神灵”的状态（跳服后自动恢复）
+function HopState.SaveNPCHopState(visitedList)
+    if not (writefile and isfile) then return end
+    local isAnyActive = Config.AutoServerHopTaoist or Config.AutoServerHopMaoshan or Config.AutoServerHopGod
+    if isAnyActive then
+        pcall(function()
+            writefile("HeavyweightFishing_NPCHop.json", HttpService:JSONEncode({
+                Active = true,
+                Taoist = Config.AutoServerHopTaoist == true,
+                Maoshan = Config.AutoServerHopMaoshan == true,
+                God = Config.AutoServerHopGod == true,
+                Visited = visitedList or HopState.npcHopVisited or {},
+                StartTime = tick()
+            }))
+        end)
+    else
+        pcall(function()
+            if isfile("HeavyweightFishing_NPCHop.json") and delfile then
+                delfile("HeavyweightFishing_NPCHop.json")
+            end
+        end)
+    end
+end
+
+-- 找到目标：停止跳服 + 关闭开关 + 删除记忆
+function HopState.ClearNPCHopState()
+    Config.AutoServerHopTaoist = false
+    Config.AutoServerHopMaoshan = false
+    Config.AutoServerHopGod = false
+    HopState.isNormalHopping = false
+    HopState.hopDeadline = 0
+    for _, key in ipairs({"Taoist", "Maoshan", "God"}) do
+        local ctrl = HopState.ui and HopState.ui[key]
+        if ctrl and ctrl.Set then pcall(ctrl.Set, false) end
+    end
+    pcall(function()
+        if isfile and isfile("HeavyweightFishing_NPCHop.json") and delfile then
+            delfile("HeavyweightFishing_NPCHop.json")
+        end
+    end)
+end
+
+-- 神灵扫描（移植自源码 secretBossState.ScanForGodSpirit）
+function HopState.ScanForGodSpirit()
+    local godKeywords = {"spirit", "god spirit", "godspirit", "thần linh", "than linh"}
+    local function matchesGod(str)
+        if not str or typeof(str) ~= "string" or str == "" then return nil end
+        local s = str:lower()
+        for _, pat in ipairs(godKeywords) do
+            if s:find(pat, 1, true) then return pat end
+        end
+        return nil
+    end
+
+    local candidateFolders = {}
+    for _, fName in ipairs({"NPC", "NPCs", "Entities", "Characters"}) do
+        local f = Workspace:FindFirstChild(fName)
+        if f then table.insert(candidateFolders, f) end
+    end
+
+    for _, folder in ipairs(candidateFolders) do
+        for _, n in ipairs(folder:GetChildren()) do
+            if (n:IsA("Model") or n:IsA("BasePart")) and matchesGod(n.Name) then
+                return n
+            end
+        end
+    end
+
+    for _, folder in ipairs(candidateFolders) do
+        for _, d in ipairs(folder:GetDescendants()) do
+            if d:IsA("ProximityPrompt") then
+                local pat = matchesGod(d.ActionText) or matchesGod(d.ObjectText) or matchesGod(d.Parent and d.Parent.Name)
+                if pat then
+                    return d:FindFirstAncestorOfClass("Model") or d.Parent
+                end
+            elseif d:IsA("TextLabel") and d.Visible and d.Text and #d.Text > 0 then
+                if matchesGod(d.Text) then
+                    return d:FindFirstAncestorOfClass("Model") or d.Parent
+                end
+            end
+        end
+    end
+
+    for _, n in ipairs(Workspace:GetChildren()) do
+        if (n:IsA("Model") or n:IsA("BasePart")) and matchesGod(n.Name) then
+            return n
+        end
+    end
+    return nil
+end
+
+function HopState.FindGodSpirit()
+    if HopState.cachedGod and HopState.cachedGod.Parent then
+        return HopState.cachedGod
+    end
+    local now = tick()
+    if (now - (HopState.lastGodScan or 0)) >= 5.0 then
+        HopState.lastGodScan = now
+        HopState.cachedGod = HopState.ScanForGodSpirit()
+        return HopState.cachedGod
+    end
+    return HopState.cachedGod
+end
+
+-- ===== 跳服失败自动重试（移植自源码 HandleTeleportError）=====
+function HopState.HandleTeleportError(reason)
+    pcall(function()
+        local gs = game:GetService("GuiService")
+        if gs and gs.ClearError then gs:ClearError() end
+    end)
+
+    if not HopState.isNormalHopping then return end
+    if tick() > (HopState.hopDeadline or 0) then
+        HopState.isNormalHopping = false
+        return
+    end
+
+    local now = tick()
+    if (now - (HopState.lastFailAt or 0)) > 60 then
+        HopState.failCount = 0
+    end
+    HopState.lastFailAt = now
+    HopState.failCount = (HopState.failCount or 0) + 1
+
+    local failJob = HopState.lastAttemptedJob
+    if failJob then
+        if not table.find(HopState.npcHopVisited, failJob) then
+            table.insert(HopState.npcHopVisited, failJob)
+        end
+        HopState.RememberServer(failJob)
+    end
+
+    if HopState.failCount > 3 then
+        HopState.isNormalHopping = false
+        HopState.hopDeadline = 0
+        ShowNotification("切换服务器", "连续跳服失败（" .. tostring(reason or "GameFull"):sub(1, 40) .. "），已停止自动重试。", "ERROR", 8)
+        return
+    end
+
+    ShowNotification("切换服务器", "服务器已满或出错（" .. tostring(reason or "GameFull"):sub(1, 35) .. "）。自动寻找其他服务器...", "WARN", 4)
+    task.delay(1.5, function()
+        if HopState.isNormalHopping and tick() <= (HopState.hopDeadline or 0) and not HopState.hopInFlight then
+            ServerHop(HopState.npcHopVisited)
+        end
+    end)
+end
+
+-- ===== ServerHop（源码移植：多页选服 + 空位 ≥ 2 + 规避 + 随机兜底）=====
+function ServerHop(avoidServers)
+    if HopState.hopInFlight then
+        ShowNotification("切换服务器", "正在跳转中，请稍候...", "WARN", 2)
+        return false
+    end
+    HopState.hopInFlight = true
+    HopState.isNormalHopping = true
+    HopState.hopDeadline = tick() + 20
+    ShowNotification("切换服务器", "正在寻找合适的服务器...", "WARN", 3)
+
+    task.spawn(function()
+        local placeId = game.PlaceId
+        local avoidMap = {}
+        if type(avoidServers) == "table" then
+            for _, sid in ipairs(avoidServers) do
+                if type(sid) == "string" and sid ~= "" then avoidMap[sid] = true end
+            end
+        elseif tonumber(avoidServers) then
+            -- 兼容旧调用：ServerHop(placeId)
+            placeId = tonumber(avoidServers)
+        end
+        for _, sid in ipairs(HopState.visited) do avoidMap[sid] = true end
+        if game.JobId and game.JobId ~= "" then avoidMap[game.JobId] = true end
+
+        local cursor = ""
+        local candidates = {}
+        for page = 1, 4 do
+            local url = string.format("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Desc&limit=100%s",
+                placeId, cursor ~= "" and ("&cursor=" .. cursor) or "")
+            local res = HttpGet(url)
+            if res then
+                local bOk, body = pcall(function() return HttpService:JSONDecode(res) end)
+                if bOk and type(body) == "table" and type(body.data) == "table" then
+                    for _, s in ipairs(body.data) do
+                        if s.id and s.playing and s.maxPlayers and not avoidMap[s.id] then
+                            local free = s.maxPlayers - s.playing
+                            if free >= 2 then
+                                table.insert(candidates, s.id)
+                            end
+                        end
+                    end
+                    if #candidates >= 5 then break end
+                    cursor = body.nextPageCursor or ""
+                    if cursor == "" then break end
+                else
+                    break
+                end
+            else
+                -- HttpGet 不可用 → 直接退回随机传送
+                break
+            end
+            task.wait(0.15)
+        end
+
+        local chosen = (#candidates > 0 and candidates[math.random(1, #candidates)]) or nil
+        if chosen then
+            HopState.lastAttemptedJob = chosen
+            HopState.RememberServer(chosen)
+            ShowNotification("切换服务器", "已找到新服务器！正在切换...", "SUCCESS", 3)
+            task.wait(0.5)
+            local ok, err = pcall(function()
+                TeleportService:TeleportToPlaceInstance(placeId, chosen, LocalPlayer)
+            end)
+            if not ok then
+                warn("[ServerHop] TeleportToPlaceInstance 出错，切换到随机 Teleport：", tostring(err))
+                pcall(function() TeleportService:Teleport(placeId, LocalPlayer) end)
+            end
+        else
+            ShowNotification("切换服务器", "没有找到有空位的服务器，正在切换到随机服务器...", "INFO", 3)
+            task.wait(0.5)
+            local ok, err = pcall(function() TeleportService:Teleport(placeId, LocalPlayer) end)
+            if not ok then
+                HopState.isNormalHopping = false
+                HopState.hopDeadline = 0
+                ShowNotification("跳服失败", tostring(err), "ERROR", 5)
+            end
+        end
+        HopState.hopInFlight = false
+    end)
+    return true
+end
+
+-- 传送失败监听（移植自源码 hooks）
+if not HopState.hooksInitialized then
+    HopState.hooksInitialized = true
+    pcall(function()
+        table.insert(activeConnections, TeleportService.TeleportInitFailed:Connect(function(player, teleportResult, errorMessage)
+            if player == LocalPlayer then
+                HopState.HandleTeleportError(errorMessage or teleportResult or "TeleportInitFailed")
+            end
+        end))
+    end)
+    pcall(function()
+        local gs = game:GetService("GuiService")
+        table.insert(activeConnections, gs.ErrorMessageChanged:Connect(function(msg)
+            if HopState.isNormalHopping and msg and msg ~= "" then
+                HopState.HandleTeleportError(msg)
+            end
+        end))
+    end)
+end
+
+-- ===== 自动跳服寻找 Taoist / 茅山 / 神灵（移植自源码 NPC 跳服循环）=====
+task.spawn(function()
+    task.wait(6)
+
+    -- NPC 扫描模块由 ESP 探测循环创建，等它就绪再开始判断
+    local waited = 0
+    while isRunning and not IdenticalNPCScan and waited < 10 do
+        task.wait(0.5)
+        waited = waited + 0.5
+    end
+
+    if game.JobId and game.JobId ~= "" and not table.find(HopState.npcHopVisited, game.JobId) then
+        table.insert(HopState.npcHopVisited, game.JobId)
+    end
+    if HopState.pendingNPCHopData then
+        ShowNotification("切换服务器", "正在检查新服务器中的 NPC / 神灵...", "WARN", 5)
+        HopState.pendingNPCHopData = nil
+    end
+
+    local lastHopAttempt = 0
+    while isRunning do
+        task.wait(3)
+        if isRunning and (Config.AutoServerHopTaoist or Config.AutoServerHopMaoshan or Config.AutoServerHopGod) then
+            local hopOk, hopErr = pcall(function()
+                local now = tick()
+                if (now - lastHopAttempt) < 10 then return end
+
+                local enabledTargets = {}
+                local foundTargets = {}
+
+                -- NPC 扫描模块不可用时不要盲目跳服
+                if not IdenticalNPCScan then
+                    if not HopState.warnedNoScanner then
+                        HopState.warnedNoScanner = true
+                        ShowNotification("换服寻找 NPC", "NPC 扫描模块未就绪，已暂停跳服，等待模块可用后继续。", "WARN", 6)
+                    end
+                    return
+                end
+
+                if Config.AutoServerHopTaoist then
+                    table.insert(enabledTargets, "道士（Taoist）")
+                    local scan = IdenticalNPCScan
+                    local tInst, tName = scan.ScanForTaoistNPC and scan.ScanForTaoistNPC()
+                    if tInst then table.insert(foundTargets, tostring(tName or "道士（Taoist）")) end
+                end
+                if Config.AutoServerHopMaoshan then
+                    table.insert(enabledTargets, "茅山道士")
+                    local scan = IdenticalNPCScan
+                    local mInst, mName = scan.ScanForMaoshanNPC and scan.ScanForMaoshanNPC()
+                    if mInst then table.insert(foundTargets, tostring(mName or "茅山道士")) end
+                end
+                if Config.AutoServerHopGod then
+                    table.insert(enabledTargets, "神灵（God Spirit）")
+                    if HopState.FindGodSpirit() then table.insert(foundTargets, "神灵（God Spirit）") end
+                end
+
+                if #foundTargets > 0 then
+                    ShowNotification("已找到！", "此服务器发现 " .. table.concat(foundTargets, ", ") .. "，已停止换服。", "SUCCESS", 8)
+                    HopState.ClearNPCHopState()
+                    return
+                end
+
+                lastHopAttempt = now
+                ShowNotification("换服寻找 NPC", "此服务器没有 " .. table.concat(enabledTargets, " / ") .. "，正在切换到下一个服务器...", "WARN", 4)
+                HopState.SaveNPCHopState(HopState.npcHopVisited)
+                if not HopState.QueueScriptOnTeleport() and not HopState.warnedNoQueue then
+                    HopState.warnedNoQueue = true
+                    ShowNotification("跳服提示", "当前执行器无法自动重开脚本，跳服后请手动重新注入本脚本继续寻找。", "WARN", 8)
+                end
+                task.wait(1.5)
+                if isRunning and (Config.AutoServerHopTaoist or Config.AutoServerHopMaoshan or Config.AutoServerHopGod) then
+                    ServerHop(HopState.npcHopVisited)
+                end
+            end)
+            if not hopOk then
+                warn("[AutoServerHop] NPC 查找循环出错：", tostring(hopErr))
+            end
+        end
+    end
+end)
+
+-- ============================================================
+-- 🌦️ 天气跳服务器
+-- 读取路径：PlayerGui.MainGui.Info.Info.Weather.Value
+-- 值形如 "Weather: Clear"，只取冒号后的天气名，再与“目标天气”比对：
+--   不符合 → 写记忆并跳服；符合 → 自动停止
+-- 支持：烈日 Blazing Sun / 血 Blood / 晴朗 Clear / 雾天 Foggy /
+--       雨天 Rainy / 雪天 Snowy / 雷暴 Thunderstorm / 大风 Windy
+-- ============================================================
+do
+    -- 目标天气选项（只显示中文；key 仍用英文与游戏内 Weather.Value 对齐）
+    local WEATHER_CN_LABEL = {
+        ["Blazing Sun"] = "烈日",
+        ["Blood"] = "血",
+        ["Clear"] = "晴朗",
+        ["Foggy"] = "雾天",
+        ["Rainy"] = "雨天",
+        ["Snowy"] = "雪天",
+        ["Thunderstorm"] = "雷暴",
+        ["Windy"] = "大风",
+    }
+    local choices = { "任意天气（除晴朗外）" }
+    local displayMap = {}
+    for _, key in ipairs({"Blazing Sun", "Blood", "Clear", "Foggy", "Rainy", "Snowy", "Thunderstorm", "Windy"}) do
+        local cn = WEATHER_CN_LABEL[key] or key
+        table.insert(choices, cn)
+        displayMap[cn] = key
+    end
+    WeatherHop.displayMap = displayMap
+    WeatherHop.cnLabel = WEATHER_CN_LABEL
+
+    -- 供“服务器跳转引擎”卡片创建下拉框（下拉框已上移到天气跳服开关下面）
+    local initialDisplay = "任意天气（除晴朗外）"
+    if WeatherHop.target and WeatherHop.target ~= "任意天气（除晴朗外）" then
+        for disp, key in pairs(displayMap) do
+            if key == WeatherHop.target then initialDisplay = disp; break end
+        end
+    end
+    WeatherHop.choiceList = choices
+    WeatherHop.initialDisplay = initialDisplay
+
+    -- 天气名归一化（中英 / 越南语 / 带后缀 / 客户端本地化都能识别）
+    local CANON_RULES = {
+        { "blazing", "Blazing Sun" }, { "烈日", "Blazing Sun" }, { "烈阳", "Blazing Sun" }, { "nắng", "Blazing Sun" },
+        { "blood", "Blood" }, { "血月", "Blood" }, { "trăng máu", "Blood" }, { "máu", "Blood" }, { "血", "Blood" },
+        { "clear", "Clear" }, { "晴朗", "Clear" },
+        { "fog", "Foggy" }, { "雾天", "Foggy" }, { "浓雾", "Foggy" }, { "sương", "Foggy" }, { "雾", "Foggy" },
+        { "rain", "Rainy" }, { "雨天", "Rainy" }, { "下雨", "Rainy" }, { "mưa", "Rainy" }, { "雨", "Rainy" },
+        { "snow", "Snowy" }, { "雪天", "Snowy" }, { "暴风雪", "Snowy" }, { "tuyết", "Snowy" }, { "雪", "Snowy" },
+        { "thunder", "Thunderstorm" }, { "雷暴", "Thunderstorm" }, { "sấm", "Thunderstorm" }, { "bão", "Thunderstorm" },
+        { "wind", "Windy" }, { "大风", "Windy" }, { "刮风", "Windy" }, { "gió", "Windy" },
+    }
+
+    local function currentPlayer()
+        local ok, plr = pcall(function() return game:GetService("Players").LocalPlayer end)
+        if ok and plr then return plr end
+        return LocalPlayer
+    end
+
+    local function readStringProp(inst)
+        if not inst then return nil end
+        for _, prop in ipairs({"Value", "Text", "ContentText"}) do
+            local ok, v = pcall(function() return inst[prop] end)
+            if ok and v ~= nil then
+                if type(v) == "string" and v ~= "" then return v end
+                if type(v) == "number" then return tostring(v) end
+            end
+        end
+        return nil
+    end
+
+    function WeatherHop.Canonical(value)
+        if value == nil then return nil end
+        local s = tostring(value)
+        s = s:gsub("\194\160", " "):gsub("\226\128\139", "")
+        s = s:match("^%s*(.-)%s*$") or ""
+        if s == "" then return nil end
+        local lower = s:lower()
+        for _, rule in ipairs(CANON_RULES) do
+            if lower:find(rule[1], 1, true) then return rule[2] end
+        end
+        return s
+    end
+
+    function WeatherHop.ParseWeather(raw)
+        if type(raw) ~= "string" then return nil end
+        local s = raw
+        s = s:gsub("\194\160", " "):gsub("\226\128\139", "")
+        s = s:match("^%s*(.-)%s*$") or ""
+        if s == "" then return nil end
+        local after = s:match("^[^:]-:%s*(.*)$")
+        if after == nil then
+            local idx = s:find("：", 1, true)
+            if idx then after = s:sub(idx + #("：")) end
+        end
+        if after ~= nil then s = after end
+        s = s:match("^%s*(.-)%s*$") or ""
+        if s == "" then return nil end
+        return s
+    end
+
+    function WeatherHop.ReadWeatherNode()
+        if WeatherHop.node and WeatherHop.node.Parent then return WeatherHop.node end
+        local plr = currentPlayer()
+        if not plr then
+            WeatherHop.lastReadError = "LocalPlayer 不可用"
+            return nil
+        end
+        local ok, weather, err = pcall(function()
+            local pg = plr:FindFirstChild("PlayerGui")
+            if not pg then return nil, "PlayerGui 不存在" end
+            local mainGui = pg:FindFirstChild("MainGui")
+            if not mainGui then return nil, "PlayerGui.MainGui 不存在" end
+            local info = mainGui:FindFirstChild("Info")
+            if not info then return nil, "MainGui.Info 不存在" end
+            local inner = info:FindFirstChild("Info")
+            local w = inner and inner:FindFirstChild("Weather")
+            if not w then w = info:FindFirstChild("Weather") end
+            if not w then
+                local now = tick()
+                if (now - (WeatherHop.lastDeepScan or 0)) > 10 then
+                    WeatherHop.lastDeepScan = now
+                    local dok, found = pcall(function() return mainGui:FindFirstChild("Weather", true) end)
+                    if dok and found then w = found end
+                end
+            end
+            if not w then return nil, "Weather 节点不存在（已试 Info.Info.Weather / Info.Weather / MainGui 递归）" end
+            return w
+        end)
+        if not ok then
+            WeatherHop.lastReadError = "读取节点出错：" .. tostring(weather)
+            return nil
+        end
+        if not weather then
+            WeatherHop.lastReadError = err
+            return nil
+        end
+        WeatherHop.lastReadError = nil
+        WeatherHop.node = weather
+        return weather
+    end
+
+    function WeatherHop.ReadRaw()
+        local node = WeatherHop.ReadWeatherNode()
+        if not node then return nil end
+        local raw = readStringProp(node)
+        if not raw then
+            -- 常见结构：Info.Info.Weather 是 Frame，文本在子节点 Value（TextLabel）
+            local child = node:FindFirstChild("Value")
+            if child then raw = readStringProp(child) end
+        end
+        if not raw then
+            -- 最后兜底：在 Weather 节点下找带 "Weather" 字样的文本控件
+            local ok, found = pcall(function()
+                for _, d in ipairs(node:GetDescendants()) do
+                    if d:IsA("TextLabel") or d:IsA("TextButton") then
+                        local tok, t = pcall(function() return d.Text end)
+                        if tok and type(t) == "string" and t ~= "" and t:find("Weather", 1, true) then
+                            return t
+                        end
+                    end
+                end
+                return nil
+            end)
+            if ok then raw = found end
+        end
+        WeatherHop.lastRaw = raw
+        if not raw then WeatherHop.lastReadError = "Weather 节点存在但读不到值（已试 Value/Text/ContentText/子节点 Value）" end
+        return raw
+    end
+
+    function WeatherHop.GetWeather()
+        local mod = IdenticalWeather
+        if mod and mod.GetCurrent then
+            local ok, cur = pcall(mod.GetCurrent)
+            if ok and type(cur) == "string" and cur ~= "" then
+                WeatherHop.lastRaw = cur
+                return WeatherHop.Canonical(WeatherHop.ParseWeather(cur) or cur)
+            end
+        end
+        local raw = WeatherHop.ReadRaw()
+        return WeatherHop.Canonical(WeatherHop.ParseWeather(raw))
+    end
+
+    function WeatherHop.DisplayName(cur)
+        if not cur or cur == "" then return "未知" end
+        local key = WeatherHop.Canonical(cur) or tostring(cur)
+        local label = WeatherHop.cnLabel and WeatherHop.cnLabel[key]
+        return label or tostring(cur)
+    end
+
+    function WeatherHop.Matches(cur, target)
+        if not cur or cur == "" then return false end
+        local c = WeatherHop.Canonical(cur) or tostring(cur)
+        if not target or target == "" or target == "任意天气（除晴朗外）" or target == "任意天气" then
+            return tostring(c):lower() ~= "clear"
+        end
+        local t = WeatherHop.Canonical(target) or tostring(target)
+        return tostring(c):lower() == tostring(t):lower()
+    end
+
+    function WeatherHop.DebugText()
+        local lines = {}
+        local mod = IdenticalWeather
+        table.insert(lines, "IdenticalWeather: " .. (mod and "有" or "无"))
+        if mod and mod.GetCurrent then
+            local ok, cur = pcall(mod.GetCurrent)
+            table.insert(lines, "模块 GetCurrent: " .. (ok and tostring(cur) or ("报错 " .. tostring(cur))))
+        end
+        local plr = currentPlayer()
+        local pg = plr and plr:FindFirstChild("PlayerGui")
+        local mainGui = pg and pg:FindFirstChild("MainGui")
+        local info = mainGui and mainGui:FindFirstChild("Info")
+        local inner = info and info:FindFirstChild("Info")
+        local weather = inner and inner:FindFirstChild("Weather")
+        table.insert(lines, "PlayerGui: " .. (pg and "有" or "无"))
+        table.insert(lines, "MainGui: " .. (mainGui and "有" or "无"))
+        table.insert(lines, "MainGui.Info: " .. (info and "有" or "无"))
+        table.insert(lines, "Info.Info: " .. (inner and "有" or "无"))
+        table.insert(lines, "Info.Info.Weather: " .. (weather and ("有（" .. tostring(weather.ClassName) .. "）") or "无"))
+        if weather then
+            for _, prop in ipairs({"Value", "Text", "ContentText"}) do
+                local ok, v = pcall(function() return weather[prop] end)
+                if ok then table.insert(lines, prop .. ": " .. tostring(v)) end
+            end
+            local valueChild = weather:FindFirstChild("Value")
+            table.insert(lines, "Weather.Value: " .. (valueChild and ("有（" .. tostring(valueChild.ClassName) .. "）") or "无"))
+            if valueChild then
+                for _, prop in ipairs({"Text", "ContentText", "Value"}) do
+                    local ok, v = pcall(function() return valueChild[prop] end)
+                    if ok then table.insert(lines, "Weather.Value." .. prop .. ": " .. tostring(v)) end
+                end
+            end
+        end
+        local raw = WeatherHop.ReadRaw()
+        table.insert(lines, "原始字符串: " .. tostring(raw))
+        table.insert(lines, "归一化结果: " .. tostring(WeatherHop.Canonical(WeatherHop.ParseWeather(raw))))
+        table.insert(lines, "读取错误: " .. tostring(WeatherHop.lastReadError))
+        return table.concat(lines, "\n")
+    end
+
+    function WeatherHop.TargetLabel()
+        if not WeatherHop.target or WeatherHop.target == "任意天气（除晴朗外）" then
+            return "任意天气（除晴朗外）"
+        end
+        return WeatherHop.DisplayName(WeatherHop.target)
+    end
+
+    function WeatherHop.SaveState()
+        if not (writefile and isfile) then return end
+        pcall(function()
+            writefile("HeavyweightFishing_WeatherHop.json", HttpService:JSONEncode({
+                Active = true,
+                TargetWeather = WeatherHop.target,
+                Visited = HopState.visited,
+                StartTime = tick()
+            }))
+        end)
+    end
+
+    function WeatherHop.DeleteState()
+        pcall(function()
+            if isfile and isfile("HeavyweightFishing_WeatherHop.json") and delfile then
+                delfile("HeavyweightFishing_WeatherHop.json")
+            end
+        end)
+    end
+
+    function WeatherHop.Finish(reason)
+        WeatherHop.active = false
+        WeatherHop.DeleteState()
+        if WeatherHop.ui.Toggle and WeatherHop.ui.Toggle.Set then
+            pcall(WeatherHop.ui.Toggle.Set, false)
+        end
+        ShowNotification("天气跳服", reason, "SUCCESS", 8)
+    end
+
+    function WeatherHop.Stop()
+        WeatherHop.active = false
+        WeatherHop.DeleteState()
+        if WeatherHop.ui.Toggle and WeatherHop.ui.Toggle.Set then
+            pcall(WeatherHop.ui.Toggle.Set, false)
+        end
+        ShowNotification("天气跳服", "已停止天气跳服。", "WARN", 4)
+    end
+
+    function WeatherHop.SetTarget(value)
+        local key = WeatherHop.displayMap and WeatherHop.displayMap[value]
+        WeatherHop.target = key or "任意天气（除晴朗外）"
+        ShowNotification("天气跳服", "目标天气已设为：" .. tostring(value), "SUCCESS", 4)
+        if WeatherHop.active then
+            WeatherHop.lastHopAt = 0
+            WeatherHop.SaveState()
+        end
+    end
+
+    function WeatherHop.StartHopOnce()
+        local cur = WeatherHop.GetWeather()
+        if game.JobId and game.JobId ~= "" then
+            HopState.RememberServer(game.JobId)
+        end
+        WeatherHop.SaveState()
+        if not HopState.QueueScriptOnTeleport() and not WeatherHop.warnedNoQueue then
+            WeatherHop.warnedNoQueue = true
+            ShowNotification("天气跳服", "当前执行器无法自动重开脚本：跳服后请手动重新注入，脚本会按记忆继续找天气。", "WARN", 8)
+        end
+        ShowNotification("天气跳服", "当前天气：" .. WeatherHop.DisplayName(cur) .. "，不符合目标，正在切换服务器...", "WARN", 4)
+        ServerHop(HopState.visited)
+    end
+
+    function WeatherHop.SetActive(v)
+        if v then
+            local cur = WeatherHop.GetWeather()
+            WeatherHop.active = true
+            WeatherHop.lastHopAt = 0
+            if not cur then
+                -- 刚进服时 GUI 可能还没加载：保持开启并等待，读到天气后再自动判断（不会盲跳）
+                WeatherHop.SaveState()
+                ShowNotification("天气跳服", "暂时读不到天气（界面可能未加载），已开启等待；读到后自动判断。", "WARN", 6)
+                return
+            end
+            if WeatherHop.ui.Info then
+                pcall(WeatherHop.ui.Info.Set, WeatherHop.DisplayName(cur))
+            end
+            if WeatherHop.Matches(cur, WeatherHop.target) then
+                WeatherHop.Finish("当前天气已经是目标：" .. WeatherHop.DisplayName(cur))
+                return
+            end
+            WeatherHop.SaveState()
+            ShowNotification("天气跳服", "当前：" .. WeatherHop.DisplayName(cur) .. " → 开始寻找 " .. WeatherHop.TargetLabel(), "WARN", 5)
+        else
+            WeatherHop.Stop()
+        end
+    end
+
+    -- 天气监视 / 自动跳服循环
+    task.spawn(function()
+        task.wait(6)
+        local waited = 0
+        while isRunning and not (IdenticalWeather and IdenticalWeather.GetCurrent) and waited < 5 do
+            task.wait(0.5)
+            waited = waited + 0.5
+        end
+
+        while isRunning do
+            task.wait(2)
+            if isRunning then
+                local loopOk, loopErr = pcall(function()
+                    local cur = WeatherHop.GetWeather()
+
+                    if WeatherHop.ui.Info then
+                        pcall(WeatherHop.ui.Info.Set, cur and WeatherHop.DisplayName(cur) or "未知")
+                    end
+
+                    if not WeatherHop.active then return end
+                    if not cur then
+                        if not WeatherHop.warnedUnreadable then
+                            WeatherHop.warnedUnreadable = true
+                            ShowNotification("天气跳服", "暂时读取不到天气，正在等待游戏界面加载...", "WARN", 5)
+                        end
+                        return
+                    end
+                    WeatherHop.warnedUnreadable = false
+
+                    if WeatherHop.Matches(cur, WeatherHop.target) then
+                        WeatherHop.Finish("已到达目标天气：" .. WeatherHop.DisplayName(cur))
+                        return
+                    end
+                    if (tick() - (WeatherHop.lastHopAt or 0)) < 8 then return end
+                    WeatherHop.lastHopAt = tick()
+                    WeatherHop.StartHopOnce()
+                end)
+                if not loopOk then
+                    warn("[WeatherHop] 循环出错：", tostring(loopErr))
+                end
+            end
+        end
+    end)
+end
+
+createCategoryHeader(tabGod, "服务器跳转引擎")
+local hopCard = createCardGroup(tabGod)
+HopState.ui.God = createToggleRow(hopCard, "为神灵跳服务器", "跳转服务器直到找到神灵", Config.AutoServerHopGod, function(v)
+    Config.AutoServerHopGod = v
+    HopState.SaveNPCHopState()
+end)
+HopState.ui.Maoshan = createToggleRow(hopCard, "为茅山跳服务器", "跳转服务器直到找到茅山", Config.AutoServerHopMaoshan, function(v)
+    Config.AutoServerHopMaoshan = v
+    HopState.SaveNPCHopState()
+end)
+HopState.ui.Taoist = createToggleRow(hopCard, "为道士跳服务器", "跳转服务器直到找到道士", Config.AutoServerHopTaoist, function(v)
+    Config.AutoServerHopTaoist = v
+    HopState.SaveNPCHopState()
+end)
+createToggleRow(hopCard, "自动四圣兽跳服", "开启前要在忍者设置开启AutoExecute 然后把脚本移到AutoExecute文件里面 不会的搜教程", Config.AutoFourBeastsFarm, function(v)
+    Config.AutoFourBeastsFarm = v
+    if v then
+        if fourBeastsState and fourBeastsState.Start then fourBeastsState.Start() end
+    else
+        -- 用户主动关闭 → 彻底清掉持久化标记
+        if delfile then pcall(delfile, "fourbeasts_autostart.txt") end
+        if getgenv then getgenv().AutoFourBeastsOnJoin = nil end
+        pcall(SaveProfile)
+    end
+end)
+WeatherHop.ui.Info = createInfoRow(hopCard, "当前天气", "读取中...", false)
+WeatherHop.ui.Toggle = createToggleRow(hopCard, "天气跳服", "不符合目标天气就自动跳服，符合后自动停止", WeatherHop.active, function(v)
+    WeatherHop.SetActive(v)
+end)
+WeatherHop.ui.Dropdown = createDropdownRow(hopCard, "目标天气", "当前天气不符合目标时自动换服", WeatherHop.choiceList, WeatherHop.initialDisplay, function(v)
+    WeatherHop.SetTarget(v)
+end)
+createButtonRow(hopCard, "立即跳服务器", "立即跳转到随机不同服务器", "跳转", ServerHop)
+
+createCategoryHeader(tabQuests, "票据任务")
+local questCard = createCardGroup(tabQuests)
+
+local function GetQuestNPC()
+    local npc = Workspace:FindFirstChild("NPC")
+    local fn = npc and npc:FindFirstChild("Function")
+    return fn and fn:FindFirstChild("Ticket Quest Giver")
+end
+
+local TicketOptionMap = {
+    Easy = { index = 1, id = "EasyAcceptQuest", extra = {"Ticket Quest"} },
+    Hard = { index = 2, id = "HardAcceptQuest", extra = {"Ticket Quest"} },
+}
+
+local function SubmitTicketViaDialogue(diffKey)
+    local opt = TicketOptionMap[diffKey]
+    local npcFunc = GetQuestNPC()
+    local ev = Events and Events:FindFirstChild("ChooseDialogueOption")
+    if not (opt and npcFunc and ev) then return false end
+
+    ev:FireServer("Ticket Quest Giver", 1, "Quest", { npcFunc })
+    task.wait(0.2)
+
+    local args = { npcFunc }
+    for _, v in ipairs(opt.extra) do table.insert(args, v) end
+    ev:FireServer("Ticket Quest Giver", opt.index, opt.id, args)
+    return true
+end
+
+local function SubmitTicketViaClaim(diffKey)
+    local ev = Events and Events:FindFirstChild("ClaimQuest")
+    if not ev then return false end
+    ev:FireServer("Ticket", diffKey == "Hard" and "Hard" or "Easy")
+    return true
+end
+
+local function SubmitTicket(diffKey)
+    if SubmitTicketViaDialogue(diffKey) then
+        ShowNotification("任务", "已通过对话接取 " .. diffKey .. " 票据任务！", "SUCCESS")
+    elseif SubmitTicketViaClaim(diffKey) then
+        ShowNotification("任务", "对话事件均不可用。", "ERROR")
+    end
+end
+
+createToggleRow(questCard, "自动票据任务", "自动接受并提交票据任务", Config.AutoTicketQuest, function(v) Config.AutoTicketQuest = v end)
+
+createDropdownRow(questCard, "难度", "票据任务难度（自动/手动通用）", {"Easy", "Hard"}, Config.TicketDifficulty, function(v)
+    Config.TicketDifficulty = v
+end)
+
+createButtonRow(questCard, "接受并提交票据任务(简单)", "对 NPC 发起简单任务对话", "接受简单", function()
+    SubmitTicket("Easy")
+end)
+
+createButtonRow(questCard, "接受并提交票据任务(困难)", "对 NPC 发起困难任务对话", "接受困难", function()
+    SubmitTicket("Hard")
+end)
+
+createCategoryHeader(tabQuests, "每日任务与奖励")
+local dailyCard = createCardGroup(tabQuests)
+createButtonRow(dailyCard, "领取每日任务", "检测完成的每日任务并领取", "领取", function()
+    if Events and Events:FindFirstChild("ClaimQuest") then
+        for i = 1, 4 do Events.ClaimQuest:FireServer("Daily", i) end
+        ShowNotification("每日任务", "已领取所有可用的每日任务！", "SUCCESS")
+    end
+end)
+
+createToggleRow(dailyCard, "自动领取每日奖励", "按顺序领取1到7天的每日奖励", Config.AutoClaimDaily, function(v) Config.AutoClaimDaily = v end)
+createSliderRow(dailyCard, "领取延迟", "领取天数之间的延迟", 0.2, 2.0, Config.DailyClaimDelay, true, "秒", function(v) Config.DailyClaimDelay = v end)
+
+createButtonRow(dailyCard, "立即领取第1到7天", "批量领取所有7天每日奖励", "领取全部", function()
+    task.spawn(function()
+        if Events and Events:FindFirstChild("DailyReward") then
+            for day = 1, 7 do
+                Events.DailyReward:FireServer(day)
+                task.wait(Config.DailyClaimDelay)
+            end
+            ShowNotification("每日奖励", "已成功领取第1到7天！", "SUCCESS")
+        end
+    end)
+end)
+
+createButtonRow(dailyCard, "兑换所有代码", "兑换所有已知的有效促销代码", "兑换", function()
+    local codes = {"41MVisits", "36MVisits", "65KLikes", "37MVisits", "HWF", "AXO", "38MVisits", "39MVisits", "BUGTrait", "SeeYouSoon"}
+    if Events and Events:FindFirstChild("RedeemCode") then
+        for _, c in ipairs(codes) do
+            Events.RedeemCode:FireServer(c)
+            task.wait(0.2)
+        end
+        ShowNotification("代码", "已兑换所有有效代码！", "SUCCESS")
+    end
+end)
+
+createCategoryHeader(tabQuests, "NPC对话")
+local charCard = createCardGroup(tabQuests)
+
+local function FireDialogue(npcDisplayName, npcRef, dialogue, extraArg)
+    local ev = Events and Events:FindFirstChild("StartDialogue")
+    if not ev then
+        ShowNotification("角色", "未找到 StartDialogue 事件。", "WARN")
+        return
+    end
+    if not firesignal then
+        ShowNotification("角色", "此执行器不支持 firesignal。", "ERROR")
+        return
+    end
+    local args = {npcDisplayName, npcRef, dialogue}
+    if extraArg ~= nil then table.insert(args, extraArg) end
+    local ok = pcall(function() firesignal(ev.OnClientEvent, unpack(args)) end)
+    if ok then
+        ShowNotification("角色", "已打开 " .. npcDisplayName .. " 的对话。", "SUCCESS")
+    else
+        ShowNotification("角色", "打开 " .. npcDisplayName .. " 的对话失败。", "ERROR")
+    end
+end
+
+createButtonRow(charCard, "南江", "抽特质 物品交换", "对话", function()
+    local ok, ref = pcall(function() return workspace.NPC.Function.Nanjiang end)
+    if not ok or not ref then
+        ShowNotification("角色", "未找到 南江 NPC。", "WARN"); return
+    end
+    FireDialogue("Nanjiang", ref, {
+        "Greetings. I can show you the way of traits. What would you like to see?",
+        {
+            {"Traits", "OpenTrait", false},
+            {"Item Exchange", "OpenTraitExchange", false},
+            {"Nevermind", "Close", false}
+        }
+    }, {ref})
+end)
+
+createButtonRow(charCard, "曾天国", "任务 技能升级", "对话", function()
+    local ok, ref = pcall(function() return workspace.NPC.Function["Zeng Tianguo"] end)
+    if not ok or not ref then
+        ShowNotification("角色", "未找到 曾天国 NPC。", "WARN"); return
+    end
+    FireDialogue("Zeng Tianguo", ref, {
+        "Hey kid, interested in polishing your technique?",
+        {
+            {"Quest", "Quest", false},
+            {"Upgrade Skill", "UpgradeSkill", false},
+            {"Nevermind", "Close", false}
+        }
+    }, {ref})
+end)
+
+createButtonRow(charCard, "北冥", "买技能 任务 主线", "对话", function()
+    local ok, ref = pcall(function() return workspace.NPC.Function["Bac Minh"] end)
+    if not ok or not ref then
+        ShowNotification("角色", "未找到 北冥 NPC。", "WARN"); return
+    end
+    FireDialogue("Bac Minh", ref, {
+        "Ok bro you do my quest or learn skill, pick one.",
+        {
+            {"Learn Skill", "LearnSkill", false},
+            {"Quest", "Quest", false},
+            {"Main Quest", "MainQuest", false},
+            {"Nevermind", "Close", false}
+        }
+    }, {ref})
+end)
+
+createButtonRow(charCard, "断杆", "公会 创造公会 主线", "对话", function()
+    local ok, ref = pcall(function() return workspace.NPC.Function["Duan Gan"] end)
+    if not ok or not ref then
+        ShowNotification("角色", "未找到 断杆 NPC。", "WARN"); return
+    end
+    FireDialogue("Duan Gan", ref, {
+        "Every great sect began with a single name carved in stone. Come to me when you are ready to raise your own banner.",
+        {
+            {"Guild", "Guild", false},
+            {"Top Guild", "TopGuild", false},
+            {"Main Quest", "MainQuest", false},
+            {"Nevermind", "Close", false}
+        }
+    }, {ref})
+end)
+
+createButtonRow(charCard, "战场岛楚依旧", "买技能 任务", "对话", function()
+    local ok, ref = pcall(function() return workspace.NPC.Function["Sage Yijiu"] end)
+    if not ok or not ref then
+        ShowNotification("角色", "未找到 逸久贤者 NPC。", "WARN"); return
+    end
+    FireDialogue("Sage Yijiu", ref, {
+        "Usually you would only need your rod alone to catch some fish, but now they are too strong to be comprehend by the rod alone. So you must learn some moveset to be able to fight them back and i'm here to teach you some technique i know.",
+        {
+            {"Learn Skill", "LearnSkill", false},
+            {"Quest", "Quest", false},
+            {"Nevermind", "Close", false}
+        }
+    }, {ref})
+end)
+
+createButtonRow(charCard, "失明的大钓鱼人", "任务 对话", "对话", function()
+    local ok, ref = pcall(function() return workspace.NPC.Function["Blind Grand Angler"] end)
+    if not ok or not ref then
+        ShowNotification("角色", "未找到 失明的大钓鱼人 NPC。", "WARN"); return
+    end
+    FireDialogue("Blind Grand Angler", ref, {
+        "I've been blind for a hundred years, my wife. She sacrificed herself to save me, but I was also blind in the process. I trained relentlessly just for one purpose: to find the beast that took my sight and my wife away from me.",
+        {
+            {"Quest", "Quest", false},
+            {"Nevermind", "Close", false}
+        }
+    }, {ref})
+end)
+
+createButtonRow(charCard, "初始岛楚依旧", "买技能 对话", "对话", function()
+    local ok, ref = pcall(function() return workspace.NPC.LearnSkill["Sage Yijiu"] end)
+    if not ok or not ref then
+        ShowNotification("角色", "未找到 初始岛 Sage Yijiu。", "WARN"); return
+    end
+    FireDialogue("LearnSkill", ref, {
+        "Usually you would only need your rod alone to catch some fish, but now they are too strong to be comprehend by the rod alone. So you must learn some moveset to be able to fight them back and i'm here to teach you some technique i know.",
+        {
+            {"Learn Skill", "LearnSkill", false},
+            {"Nevermind", "Close", false}
+        }
+    })
+end)
+
+createButtonRow(charCard, "江老", "任务 对话", "对话", function()
+    local ok, ref = pcall(function() return workspace.NPC.Function["Giang Lao"] end)
+    if not ok or not ref then
+        ShowNotification("角色", "未找到 江老 NPC。", "WARN"); return
+    end
+    FireDialogue("Giang Lao", ref, {
+        "I saw you caught a very big fish. Very talented haha.. I'm too old now, but i'd enjoy to fishing with kids around.",
+        {
+            {"Quest", "Quest", false},
+            {"Nevermind", "Close", false}
+        }
+    }, {ref})
+end)
+
+createButtonRow(charCard, "少林", "购买", "对话", function()
+    local ok, ref = pcall(function() return workspace.NPC.Function["Hua Heshang"] end)
+    if not ok or not ref then
+        ShowNotification("角色", "未找到 和尚 NPC。", "WARN"); return
+    end
+    FireDialogue("Hua Heshang", ref, {
+        "Hey, kid. If you want to learn from me, you should at least show a little sincerity, don't you think? (500M Cash to buy the Buddha Orb)",
+        {
+            {"Buy", "Buy", false},
+            {"Nevermind", "Close", false}
+        }
+    }, {ref})
+end)
+
+createButtonRow(charCard, "世界表弟", "主线 任务 对话", "对话", function()
+    local ok, ref = pcall(function() return workspace.NPC.Function["Biao Di"] end)
+    if not ok or not ref then
+        ShowNotification("角色", "未找到 世界表弟 NPC。", "WARN"); return
+    end
+    FireDialogue("Biao Di", ref, {
+        "You carry a blade's temper in a fisherman's hands. Prove it, and I will sharpen what you already have.",
+        {
+            {"Main Quest", "MainQuest", false},
+            {"Nevermind", "Close", false}
+        }
+    }, {ref})
+end)
+
+createButtonRow(charCard, "暗影", "升级角色", "对话", function()
+    local ok, ref = pcall(function() return workspace.NPC.Function["The Shadow"] end)
+    if not ok or not ref then
+        ShowNotification("角色", "未找到 暗影 NPC。", "WARN"); return
+    end
+    FireDialogue("The Shadow", ref, {
+        "Do you wish to make a deal? I shall grant you the power of an Sage Angler... but in return, you must fulfill every request I ask of you.",
+        {
+            {"Deal", "OpenUPGChar", false},
+            {"Nevermind", "Close", false}
+        }
+    }, {ref})
+end)
+
+createButtonRow(charCard, "天气岛楚新(", "主线任务", "对话", function()
+    local ok, ref = pcall(function() return workspace.NPC.Function["Chu Xin"] end)
+    if not ok or not ref then
+        ShowNotification("角色", "未找到 楚新(Chu Xin) NPC。", "WARN"); return
+    end
+    FireDialogue("Chu Xin", ref, {
+        "The sea keeps no favorites, only records. Come back when yours is worth reading.",
+        {
+            {"Main Quest", "MainQuest", false},
+            {"Nevermind", "Close", false}
+        }
+    }, {ref})
+end)
+
+createButtonRow(charCard, "天气岛江老", "主线任务", "对话", function()
+    local ok, ref = pcall(function() return workspace.NPC.Function["Old Jiang"] end)
+    if not ok or not ref then
+        ShowNotification("角色", "未找到 江老(Old Jiang) NPC。", "WARN"); return
+    end
+    FireDialogue("Old Jiang", ref, {
+        "I have nothing left to teach and only one thing left to give. Whether you can carry it is another matter.",
+        {
+            {"Main Quest", "MainQuest", false},
+            {"Nevermind", "Close", false}
+        }
+    }, {ref})
+end)
+
+createButtonRow(charCard, "钓科威", "主线任务", "对话", function()
+    local ok, ref = pcall(function() return workspace.NPC.Function["Diao Kewei"] end)
+    if not ok or not ref then
+        ShowNotification("角色", "未找到 钓科威(Diao Kewei) NPC。", "WARN"); return
+    end
+    FireDialogue("Diao Kewei", ref, {
+        "Help me catch this fish. I hold none of the answers you are searching for, but I can fund every expense of your journey.",
+        {
+            {"Main Quest", "MainQuest", false},
+            {"Nevermind", "Close", false}
+        }
+    }, {ref})
+end)
+
+createButtonRow(charCard, "五指钓王", "主线任务(天气鱼)", "对话", function()
+    local ok, ref = pcall(function() return workspace.NPC.Function["Wuzhi Diaowang"] end)
+    if not ok or not ref then
+        ShowNotification("角色", "未找到 五指钓王(Wuzhi Diaowang) NPC。", "WARN"); return
+    end
+    FireDialogue("Wuzhi Diaowang", ref, {
+        "Will you help me find the Weather Fish? There are only four of them in total, and I'll show you the power of the Golden Hand",
+        {
+            {"Main Quest", "MainQuest", false},
+            {"Nevermind", "Close", false}
+        }
+    }, {ref})
+end)
+
+createButtonRow(charCard, "史金钓", "主线任务", "对话", function()
+    local ok, ref = pcall(function() return workspace.NPC.Function["Shi Xing Diao"] end)
+    if not ok or not ref then
+        ShowNotification("角色", "未找到 史金钓(Shi Xing Diao) NPC。", "WARN"); return
+    end
+    FireDialogue("Shi Xing Diao", ref, {
+        "Few anglers ever make it this far. Fewer still leave with anything worth keeping.",
+        {
+            {"Main Quest", "MainQuest", false},
+            {"Nevermind", "Close", false}
+        }
+    }, {ref})
+end)
+
+createButtonRow(charCard, "楚天骄", "主线任务", "对话", function()
+    local ok, ref = pcall(function() return workspace.NPC.Function["Chu Tianjiao"] end)
+    if not ok or not ref then
+        ShowNotification("角色", "未找到 楚天骄(Chu Tianjiao) NPC。", "WARN"); return
+    end
+    FireDialogue("Chu Tianjiao", ref, {
+        "This sea... still bears no trace of the Four Sacred Beasts",
+        {
+            {"Main Quest", "MainQuest", false},
+            {"Close", "Close", false}
+        }
+    }, {ref})
+end)
+
+createButtonRow(charCard, "楚无双", "设出生点 主线 宝珠任务", "对话", function()
+    local ok, ref = pcall(function() return workspace.NPC.Function["Chu Wushuang"] end)
+    if not ok or not ref then
+        ShowNotification("角色", "未找到 楚无双(Chu Wushuang) NPC。", "WARN"); return
+    end
+    FireDialogue("Chu Wushuang", ref, {
+        "Would you like to set spawn here?",
+        {
+            {"Set spawn here", "SetSpawn", false},
+            {"Main Quest", "MainQuest", false},
+            {"Orb Quest", "OrbQuest", false},
+            {"Nevermind", "Close", false}
+        }
+    }, {ref})
+end)
+
+createButtonRow(charCard, "亚索", "主线任务", "对话", function()
+    local ok, ref = pcall(function() return workspace.NPC.Function["Yaxuo"] end)
+    if not ok or not ref then
+        ShowNotification("角色", "未找到 亚索(Yaxuo) NPC。", "WARN"); return
+    end
+    FireDialogue("Yaxuo", ref, {
+        "What brings you to me?",
+        {
+            {"Main Quest", "MainQuest", false},
+            {"Nevermind", "Close", false}
+        }
+    }, {ref})
+end)
+createCategoryHeader(tabQuests, "NPC任务")
+local invAutoCard = createCardGroup(tabQuests)
+
+local giveFishSlotPointer  = 1
+local giveFishMovedItems   = {}
+local giveFishTargetSlots  = {"4", "5", "6", "7", "8", "9", "10"}
+local giveFishHoldIdx      = 0
+local lastGiveFishTime     = 0
+local giveFishLastHadFish  = false
+local giveFishRunning      = false
+
+-- ========== 扫描缓存（一次遍历多处复用） ==========
+local scanCache = { time = 0, items = {}, fishCount = 0 }
+
+local function GetInventoryFrame()
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if not pg then return nil end
+    local mg = pg:FindFirstChild("MainGui")
+    if not mg then return nil end
+    local m = mg:FindFirstChild("Main")
+    if not m then return nil end
+    local inv = m:FindFirstChild("Inventory")
+    if not inv then return nil end
+    local im = inv:FindFirstChild("Main")
+    if not im then return nil end
+    local list = im:FindFirstChild("List")
+    if not list then return nil end
+    return list:FindFirstChild("ScrollingFrame ") or list:FindFirstChild("ScrollingFrame")
+end
+
+local function GetItemId(itemFrame)
+    if not itemFrame then return nil end
+    local attrId = itemFrame:GetAttribute("ItemId")
+        or itemFrame:GetAttribute("UUID")
+        or itemFrame:GetAttribute("Id")
+    if attrId then return tostring(attrId) end
+    for _, key in ipairs({ "ItemId", "UUID", "Id", "UID" }) do
+        local child = itemFrame:FindFirstChild(key)
+        if child and child:IsA("StringValue") then
+            return child.Value
+        end
+    end
+    return itemFrame.Name
+end
+
+-- ⚡ 优化：不再 GetDescendants，只查直接子对象 + Attribute
+local function IsItemFavorite(itemFrame)
+    if not itemFrame then return false end
+    if itemFrame:GetAttribute("Favorite") == true then return true end
+    if itemFrame.Name:lower():find("favorite", 1, true) then return true end
+
+    local flag = itemFrame:FindFirstChild("Favorite")
+    if flag and flag:IsA("BoolValue") and flag.Value then return true end
+
+    -- 只查这几个固定候选，不再递归整个后代树
+    for _, n in ipairs({"FavIcon", "FavoriteIcon", "FavBtn", "FavFrame", "Heart"}) do
+        local c = itemFrame:FindFirstChild(n)
+        if c then
+            if c:IsA("BoolValue") and c.Value then return true end
+            if c:IsA("GuiObject") and c.Visible then return true end
+        end
+    end
+    return false
+end
+
+-- ⚡ 优化：一次遍历得到全部信息，其余函数都读缓存
+local function ScanInventory(force)
+    local now = tick()
+    if not force and (now - scanCache.time) < 0.2 then
+        return scanCache
+    end
+
+    scanCache.time = now
+    scanCache.items = {}
+    scanCache.fishCount = 0
+
+    local sf = GetInventoryFrame()
+    if not sf then return scanCache end
+
+    for _, item in ipairs(sf:GetChildren()) do
+        if item:IsA("GuiObject") then
+            if not IsItemFavorite(item) then
+                local id = GetItemId(item)
+                if id then
+                    scanCache.items[#scanCache.items + 1] = { id = id, frame = item }
+                    scanCache.fishCount = scanCache.fishCount + 1
+                end
+            end
+        end
+    end
+    return scanCache
+end
+
+local function CountInventoryFish()
+    return ScanInventory().fishCount
+end
+
+local function HasFishInInventory()
+    return ScanInventory().fishCount > 0
+end
+
+local function CollectGiveFishCandidates()
+    local cache = ScanInventory()
+    local list = {}
+    for _, entry in ipairs(cache.items) do
+        if not giveFishMovedItems[entry.id] then
+            list[#list + 1] = entry.id
+        end
+    end
+    return list
+end
+
+local function MoveFishToHotbar()
+    local moveEv = Events and Events:FindFirstChild("MoveItems")
+    if not moveEv then return 0 end
+
+    -- 强制刷新一次缓存，保证数据新鲜
+    ScanInventory(true)
+
+    local movedCount = 0
+    local guard = 0
+    while isRunning do
+        guard = guard + 1
+        if guard > 50 then break end
+
+        local batch = CollectGiveFishCandidates()
+        if #batch == 0 then break end
+
+        local sent = 0
+        for _, id in ipairs(batch) do
+            local slot = giveFishTargetSlots[giveFishSlotPointer]
+            local ok = pcall(function() moveEv:FireServer("Inventory", id, slot) end)
+            if ok then
+                giveFishMovedItems[id] = true
+                giveFishSlotPointer = giveFishSlotPointer % #giveFishTargetSlots + 1
+                movedCount = movedCount + 1
+                sent = sent + 1
+            end
+        end
+        if sent == 0 then break end
+        task.wait(0.05)
+    end
+    return movedCount
+end
+
+-- ⚡ 优化：优先 FireServer（非阻塞），失败才回退 InvokeServer
+local function HoldNextFish()
+    local ev = Events and Events:FindFirstChild("ToggleHotbar")
+    if not ev then return end
+    giveFishHoldIdx = giveFishHoldIdx % #giveFishTargetSlots + 1
+    local slot = giveFishTargetSlots[giveFishHoldIdx]
+
+    local ok = pcall(function() ev:FireServer(slot, nil) end)
+    if not ok then
+        pcall(function() ev:InvokeServer(slot, nil) end)
+    end
+end
+
+local function SubmitToDumbGuy()
+    local ev = Events and Events:FindFirstChild("ChooseDialogueOption")
+    local npcRef = workspace.NPC and workspace.NPC.Function and workspace.NPC.Function["Dumb guy"]
+    if not (ev and npcRef) then return false end
+    pcall(function() ev:FireServer("Dumb guy", 1, "GiveFish", {npcRef}) end)
+    return true
+end
+
+local function SwitchToFirstSlot()
+    local ev = Events and Events:FindFirstChild("ToggleHotbar")
+    if not ev then return end
+    local ok = pcall(function() ev:FireServer("1", nil) end)
+    if not ok then
+        pcall(function() ev:InvokeServer("1", nil) end)
+    end
+end
+
+local function GiveFishOneRound()
+    if not Config.AutoGiveFishToDumbGuy then return 0 end
+
+    local fishCount = CountInventoryFish()
+    if fishCount < (Config.GiveFishMinCount or 100) then
+        return -2
+    end
+
+    table.clear(giveFishMovedItems)
+    giveFishLastHadFish = true
+
+    local totalMoved = 0
+    local guard = 0
+    local emptyMoves = 0
+
+    while isRunning and Config.AutoGiveFishToDumbGuy do
+        guard = guard + 1
+        if guard > 500 then break end
+        if not HasFishInInventory() then break end
+
+        local moved = MoveFishToHotbar()
+        if moved > 0 then
+            totalMoved = totalMoved + moved
+            emptyMoves = 0
+        else
+            emptyMoves = emptyMoves + 1
+            if emptyMoves >= 3 then break end
+        end
+
+        -- 延迟取小一点，但已比原来快
+        task.wait(Config.GiveFishDelay or 0.06)
+
+        for _ = 1, 2 do
+            HoldNextFish()
+            task.wait(Config.GiveFishDelay or 0.06)
+            SubmitToDumbGuy()
+            task.wait(Config.GiveFishDelay or 0.06)
+        end
+    end
+
+    if totalMoved > 0 and giveFishLastHadFish then
+        giveFishLastHadFish = false
+        SwitchToFirstSlot()
+    end
+    return totalMoved
+end
+
+createToggleRow(invAutoCard, "自动把鱼给傻子", "收藏不会给", Config.AutoGiveFishToDumbGuy, function(v)
+    Config.AutoGiveFishToDumbGuy = v
+end)
+
+createDropdownRow(invAutoCard, "触发数量", "背包鱼数量达到此值才运行", {"1", "100", "200", "300", "400", "500", "600", "700"}, tostring(Config.GiveFishMinCount), function(v)
+    Config.GiveFishMinCount = tonumber(v) or 100
+end)
+
+createCategoryHeader(tabShop, "鱼饵制作与购买")
+local baitCard = createCardGroup(tabShop)
+
+local craftBaits = {"Nameless Bait", "Frost Bait", "Rainbow Bait"}
+createDropdownRow(baitCard, "制作目标", "要制作的神话Boss鱼饵", craftBaits, Config.CraftBaitName, function(v) Config.CraftBaitName = v end)
+createSliderRow(baitCard, "制作数量", "每批制作数量", 1, 10, Config.CraftAmount, false, "", function(v) Config.CraftAmount = v end)
+createToggleRow(baitCard, "自动制作鱼饵", "材料存在时持续制作", Config.AutoCraftBait, function(v) Config.AutoCraftBait = v end)
+
+local buyBaits = {"Ancestral Bait", "Elite Bait", "Corrupted Essence Bait", "Crude Mash Bait", "Basic Bait"}
+createDropdownRow(baitCard, "购买目标", "从八长购买的鱼饵", buyBaits, Config.BuyBaitName, function(v) Config.BuyBaitName = v end)
+createSliderRow(baitCard, "购买数量", "每次购买的数量", 1, 50, Config.BuyBaitAmount, false, "", function(v) Config.BuyBaitAmount = v end)
+createSliderRow(baitCard, "库存阈值", "库存低于此值时购买", 5, 50, Config.BuyBaitThreshold, false, "", function(v) Config.BuyBaitThreshold = v end)
+createToggleRow(baitCard, "自动购买鱼饵", "库存低时自动补货鱼饵", Config.AutoBuyBait, function(v) Config.AutoBuyBait = v end)
+
+createCategoryHeader(tabShop, "逸久贤者(技能商人)")
+local sageCard = createCardGroup(tabShop)
+local sageSkills = {"One-Strike Heaven Gate", "Taijiquan Technique", "Infinite Sky Ascension", "Rolling Chaos", "Sever the Gate", "Phoenix Strike Art", "Skyfall Stomp", "Beastbreaker Cleave", "Demonfall Technique", "Dragon Strike"}
+local chosenSageSkill = sageSkills[1]
+createDropdownRow(sageCard, "选择技能", "从逸久贤者处学习的技能", sageSkills, chosenSageSkill, function(v) chosenSageSkill = v end)
+
+createButtonRow(sageCard, "购买技能并传送", "传送到逸久贤者处并购买技能", "购买技能", function()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if root then
+        root.CFrame = CFrame.new(-117.5, 6.8, 41.2)
+        task.wait(0.3)
+        if Events and Events:FindFirstChild("BuySkill") then
+            Events.BuySkill:FireServer(chosenSageSkill)
+            ShowNotification("逸久贤者", "已购买 " .. chosenSageSkill .. "！", "SUCCESS")
+        end
+    end
+end)
+
+createCategoryHeader(tabShop, "自动扭蛋")
+local gachaCard = createCardGroup(tabShop)
+createDropdownRow(gachaCard, "扭蛋卡池", "当前召唤卡池", {"太极卡池", "无我卡池"}, Config.GachaBanner, function(v) Config.GachaBanner = v end)
+createSliderRow(gachaCard, "每次扭蛋票数", "每次扭蛋动作的票数", 1, 10, Config.GachaPullsPerAction, false, "", function(v) Config.GachaPullsPerAction = v end)
+createToggleRow(gachaCard, "自动扭蛋", "自动从选中的卡池抽取", Config.AutoGacha, function(v) Config.AutoGacha = v end)
+
+createCategoryHeader(tabShop, "鱼竿商人目录(按价格排序)")
+local rodShopCard = createCardGroup(tabShop)
+
+local function formatNumber(n)
+    if n == 0 then return "免费" end
+    local formatted = tostring(n)
+    local k
+    while true do
+        formatted, k = string.gsub(formatted, "^(-?%d+)(%d%d%d)", "%1,%2")
+        if k == 0 then break end
+    end
+    return formatted .. " 现金"
+end
+
+for _, rod in ipairs(allRods) do
+    local pStr = formatNumber(rod.price)
+    local desc = string.format("威力: %d | 运气: %d%% | %s", rod.power, rod.luck, pStr)
+    createButtonRow(rodShopCard, rod.name, desc, "购买", function()
+        if Events and Events:FindFirstChild("BuyFishingRod") then
+            Events.BuyFishingRod:FireServer(rod.name)
+            ShowNotification("鱼竿商人", "尝试购买 " .. rod.name, "SUCCESS")
+        end
+    end)
+end
+
+createCategoryHeader(tabTeleports, "岛屿进度(1-10)")
+local islandCard = createCardGroup(tabTeleports)
+
+local islands = {
+    {name = "[1] 起始岛(出生点)", pos = Vector3.new(-200.7, 11.1, 35.9)},
+    {name = "[2] 竹岛", pos = Vector3.new(-1223.0, 7.3, -24.1)},
+    {name = "[3] 辐射岛", pos = Vector3.new(65.5, 8.8, 1181.3)},
+    {name = "[4] 主权岛", pos = Vector3.new(-1276.4, 8.8, 1239.7)},
+    {name = "[5] 鲈鱼岛", pos = Vector3.new(-62.0, 11.9, -1321.4)},
+    {name = "[6] 冰霜岛", pos = Vector3.new(-1366.0, 11.9, -1495.4)},
+    {name = "[7] 椰子岛", pos = Vector3.new(1493.6, 9.1, -1430.6)},
+    {name = "[8] 琥珀岛", pos = Vector3.new(1259.4, 9.1, 1401.5)},
+    {name = "[9] 战场岛", pos = Vector3.new(1393.5, 11.3, 169.6)},
+    {name = "[10] 雾峰岛", pos = Vector3.new(2660.2, 8.8, -86.7)},
+    {name = "[11] 世界垂钓者岛", pos = Vector3.new(-2402.17, 8.64, -210.04)},
+    {name = "[12] 天气岛", pos = Vector3.new(-3038.98, 48.94, 1579.06)},
+    {name = "[13] 神秘珊瑚岛", pos = Vector3.new(-2656.49, 6.76, -1302.07)},
+}
+
+for _, isl in ipairs(islands) do
+    createButtonRow(islandCard, isl.name, "传送到 " .. isl.name, "传送", function()
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root then
+            root.CFrame = CFrame.new(isl.pos + Vector3.new(0, 3, 0))
+            ShowNotification("传送", "已到达 " .. isl.name .. "！", "SUCCESS")
+        end
+    end)
+end
+
+createCategoryHeader(tabTeleports, "Boss竞技场与隐藏领域")
+local bossRealmCard = createCardGroup(tabTeleports)
+
+local bossRealms = {
+    {name = "章鱼寄生体(海洋Boss浮标)", pos = Vector3.new(1608.2, 5.0, -218.3)},
+    {name = "渔夫之地(地下领域)", pos = Vector3.new(112.5, -330.0, -30.8)},
+    {name = "Enzo Boss竞技场", pos = Vector3.new(-115.3, 9.2, 1349.5)},
+    {name = "龙钓海BOSS", pos = Vector3.new(-2884.75, 32.17, 1346.83)},
+}
+
+for _, br in ipairs(bossRealms) do
+    createButtonRow(bossRealmCard, br.name, "传送到 " .. br.name, "传送", function()
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root then
+            root.CFrame = CFrame.new(br.pos + Vector3.new(0, 3, 0))
+            ShowNotification("传送", "已到达 " .. br.name .. "！", "SUCCESS")
+        end
+    end)
+end
+
+createCategoryHeader(tabTeleports, "鱼竿商人商店(标迪)")
+local rodDealerCard = createCardGroup(tabTeleports)
+
+local rodDealers = {
+    {name = "[1] 起始岛商人", pos = Vector3.new(-151.4, 8.7, -49.9)},
+    {name = "[2] 竹岛商人", pos = Vector3.new(-1236.8, 7.3, -174.1)},
+    {name = "[3] 辐射岛商人", pos = Vector3.new(138.4, 9.0, 1179.7)},
+    {name = "[4] 主权岛商人", pos = Vector3.new(-1262.6, 8.2, 1202.2)},
+    {name = "[5] 鲈鱼岛商人", pos = Vector3.new(-9.5, 9.2, -1330.0)},
+    {name = "[6] 冰霜岛商人", pos = Vector3.new(-1400.4, 9.2, -1490.6)},
+    {name = "[7] 椰子岛商人", pos = Vector3.new(1446.0, 9.3, -1408.0)},
+    {name = "[8] 琥珀岛商人", pos = Vector3.new(1292.7, 8.2, 1497.4)},
+}
+
+for _, rd in ipairs(rodDealers) do
+    createButtonRow(rodDealerCard, rd.name, "直接传送到鱼竿商人", "传送", function()
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root then
+            root.CFrame = CFrame.new(rd.pos + Vector3.new(0, 3, 0))
+            ShowNotification("鱼竿商人", "已到达 " .. rd.name .. "！", "SUCCESS")
+        end
+    end)
+end
+
+createCategoryHeader(tabTeleports, "秘密鱼竿位置")
+local sRodCard = createCardGroup(tabTeleports)
+
+local secretRods = {
+    {name = "锚定鱼竿", pos = Vector3.new(-1208.5, 56.3, 1646.2)},
+    {name = "火焰鲨鱼竿", pos = Vector3.new(-8.4, 53.9, 6.7)},
+    {name = "海妖鱼竿", pos = Vector3.new(1543.8, 73.4, 1490.9)},
+    {name = "升华竹竿", pos = Vector3.new(-1360.6, 140.6, 31.0)},
+    {name = "生命绽放鱼竿", pos = Vector3.new(-114.9, 74.9, -1533.2)},
+    {name = "恶魔鱼竿", pos = Vector3.new(1181.9, 82.9, -1243.8)}
+}
+
+for _, sr in ipairs(secretRods) do
+    createButtonRow(sRodCard, sr.name, "传送到秘密鱼竿位置", "传送", function()
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root then
+            root.CFrame = CFrame.new(sr.pos + Vector3.new(0, 3, 0))
+            ShowNotification("秘密鱼竿", "已传送到 " .. sr.name .. "！", "SUCCESS")
+        end
+    end)
+end
+
+createCategoryHeader(tabTeleports, "NPC传送")
+local npcTeleportCard = createCardGroup(tabTeleports)
+
+local npcTracked = { Taoist = nil, Maoshan = nil }
+local npcArrivedFlag = { Taoist = false, Maoshan = false }
+
+local function FindNPCDeep(substr)
+    local function scan(container, depth)
+        if depth > 4 then return nil end
+        for _, n in ipairs(container:GetChildren()) do
+            local name = n.Name
+            if type(name) == "string" and name:find(substr) then
+                if n:IsA("Model") then
+                    local ok2, pivot = pcall(function() return n:GetPivot() end)
+                    if ok2 and pivot then return pivot.Position end
+                elseif n:IsA("BasePart") then
+                    return n.Position
+                end
+            end
+            if n:IsA("Model") or n:IsA("Folder") then
+                local r = scan(n, depth + 1)
+                if r then return r end
+            end
+        end
+        return nil
+    end
+
+    local roots = {
+        Workspace:FindFirstChild("NPC"),
+        Workspace:FindFirstChild("NPCs"),
+        Workspace:FindFirstChild("Npcs"),
+        Workspace:FindFirstChild("Interactables"),
+        Workspace:FindFirstChild("Characters"),
+        Workspace,
+    }
+    for _, r in ipairs(roots) do
+        if r then
+            local pos = scan(r, 1)
+            if pos then return pos end
+        end
+    end
+    return nil
+end
+
+local function TeleportToNPC(kind)
+    local pos = npcTracked[kind]
+    if not pos then
+        ShowNotification("传送", (kind == "Taoist" and "道士" or "茅山") .. " 未刷新。", "WARN")
+        return
+    end
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if root then
+        root.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
+        ShowNotification("传送", "已传送到 " .. (kind == "Taoist" and "道士" or "茅山") .. "！", "SUCCESS")
+    end
+end
+
+local btnTPTaoist = createButtonRow(npcTeleportCard, "传送道士", "未刷新", "传送", function()
+    TeleportToNPC("Taoist")
+end)
+
+local btnTPMaoshan = createButtonRow(npcTeleportCard, "传送茅山", "未刷新", "传送", function()
+    TeleportToNPC("Maoshan")
+end)
+
+local function GetDescLabelFromButton(btn)
+    local row = btn and btn.Parent
+    if not row then return nil end
+    for _, child in ipairs(row:GetChildren()) do
+        if child:IsA("Frame") then
+            for _, c2 in ipairs(child:GetChildren()) do
+                if c2:IsA("TextLabel") and c2.TextSize == 8 then
+                    return c2
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local taoistDescLabel  = GetDescLabelFromButton(btnTPTaoist)
+local maoshanDescLabel = GetDescLabelFromButton(btnTPMaoshan)
+
+local function RefreshNPCCoords()
+    local tPos = FindNPCDeep("Taoist")
+    local mPos = FindNPCDeep("Maoshan")
+
+    npcTracked.Taoist  = tPos
+    npcTracked.Maoshan = mPos
+
+    if taoistDescLabel then
+        if tPos then
+            taoistDescLabel.Text = string.format("坐标: (%.1f, %.1f, %.1f)", tPos.X, tPos.Y, tPos.Z)
+            taoistDescLabel.TextColor3 = Colors.AccentGreen
+        elseif npcArrivedFlag.Taoist then
+            taoistDescLabel.Text = "已到达(坐标解析中...)"
+            taoistDescLabel.TextColor3 = Colors.AccentYellow
+        else
+            taoistDescLabel.Text = "未刷新"
+            taoistDescLabel.TextColor3 = Colors.TextMuted
+        end
+    end
+    if maoshanDescLabel then
+        if mPos then
+            maoshanDescLabel.Text = string.format("坐标: (%.1f, %.1f, %.1f)", mPos.X, mPos.Y, mPos.Z)
+            maoshanDescLabel.TextColor3 = Colors.AccentGreen
+        elseif npcArrivedFlag.Maoshan then
+            maoshanDescLabel.Text = "已到达(坐标解析中...)"
+            maoshanDescLabel.TextColor3 = Colors.AccentYellow
+        else
+            maoshanDescLabel.Text = "未刷新"
+            maoshanDescLabel.TextColor3 = Colors.TextMuted
+        end
+    end
+end
+
+local function OnVisitStateChange(kind, arrived)
+    npcArrivedFlag[kind] = arrived
+    if arrived then
+        RefreshNPCCoords()
+    else
+        npcTracked[kind] = nil
+        RefreshNPCCoords()
+    end
+end
+
+pcall(function()
+    local TCS = game:GetService("TextChatService")
+    if TCS then
+        table.insert(activeConnections, TCS.MessageReceived:Connect(function(tcm)
+            if not (tcm and tcm.Text) then return end
+            local t = tcm.Text
+            if t:find("Taoist has just arrived!", 1, true) then OnVisitStateChange("Taoist", true) end
+            if t:find("Taoist has left!", 1, true) then OnVisitStateChange("Taoist", false) end
+            if t:find("Maoshan has just arrived!", 1, true) then OnVisitStateChange("Maoshan", true) end
+            if t:find("Maoshan has left!", 1, true) then OnVisitStateChange("Maoshan", false) end
+        end))
+    end
+end)
+
+for _, plr in ipairs(Players:GetPlayers()) do
+    table.insert(activeConnections, plr.Chatted:Connect(function(msg)
+        if msg:find("Taoist has just arrived!", 1, true) then OnVisitStateChange("Taoist", true) end
+        if msg:find("Taoist has left!", 1, true) then OnVisitStateChange("Taoist", false) end
+        if msg:find("Maoshan has just arrived!", 1, true) then OnVisitStateChange("Maoshan", true) end
+        if msg:find("Maoshan has left!", 1, true) then OnVisitStateChange("Maoshan", false) end
+    end))
+end
+table.insert(activeConnections, Players.PlayerAdded:Connect(function(plr)
+    plr.Chatted:Connect(function(msg)
+        if msg:find("Taoist has just arrived!", 1, true) then OnVisitStateChange("Taoist", true) end
+        if msg:find("Taoist has left!", 1, true) then OnVisitStateChange("Taoist", false) end
+        if msg:find("Maoshan has just arrived!", 1, true) then OnVisitStateChange("Maoshan", true) end
+        if msg:find("Maoshan has left!", 1, true) then OnVisitStateChange("Maoshan", false) end
+    end)
+end))
+
+local lastNpcScan = 0
+table.insert(activeConnections, RunService.Heartbeat:Connect(function()
+    if not isRunning then return end
+    -- 只在“神灵”页可见时扫描：挂机钓鱼时没必要每 5 秒把 Workspace 深度 4 扫两遍
+    if not (mainFrame and mainFrame.Visible and tabGod and tabGod.Visible) then return end
+    local now = tick()
+    if now - lastNpcScan < 5 then return end
+    lastNpcScan = now
+    RefreshNPCCoords()
+end))
+
+task.spawn(function()
+    task.wait(1)
+    RefreshNPCCoords()
+end)
+
+createCategoryHeader(tabTeleports, "服务器与玩家传送")
+local srvCard = createCardGroup(tabTeleports)
+
+local lastTpTarget = nil
+createButtonRow(srvCard, "传送到随机玩家", "直接传送到另一个玩家", "传送", function()
+    local targets = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            table.insert(targets, p)
+        end
+    end
+    if #targets == 0 then
+        ShowNotification("玩家传送", "未找到其他玩家。", "WARN")
+        return
+    end
+    local pool = {}
+    for _, p in ipairs(targets) do
+        if not (#targets > 1 and p == lastTpTarget) then
+            table.insert(pool, p)
+        end
+    end
+    local selected = (#pool > 0 and pool[math.random(1, #pool)]) or targets[math.random(1, #targets)]
+    lastTpTarget = selected
+    local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if root and selected.Character and selected.Character:FindFirstChild("HumanoidRootPart") then
+        root.CFrame = selected.Character.HumanoidRootPart.CFrame + Vector3.new(0, 2, 3)
+        ShowNotification("玩家传送", "已传送到 " .. selected.DisplayName, "SUCCESS")
+    end
+end)
+
+-- ============================================================
+-- 🐉 自动四圣兽跳服（传送到楚天骄 → 打开对话 → 读文本 → 决策）
+-- ============================================================
+fourBeastsState = {
+    running = false,
+    supportsAutoRestart = true,
+    lastHop = 0,
+    announcedIsle = nil,
+    cachedNPCModel = nil,
+    cachedNPCPos = nil,
+    cachedNPCCFrame = nil,
+    cachedNPCPrompt = nil,
+    isleMap = {
+        ["Beginning Isle"]    = "起始岛",
+        ["Bamboo Isle"]       = "竹岛",
+        ["Fallout Isle"]      = "辐射岛",
+        ["Sovereign Isle"]    = "主权岛",
+        ["Perch Isle"]        = "鲈鱼岛",
+        ["Frost Isle"]        = "冰霜岛",
+        ["Coconut Isle"]      = "椰子岛",
+        ["Amber Isle"]        = "琥珀岛",
+        ["Battlefield Isle"]  = "战场岛",
+        ["Mistpeak Isle"]     = "雾峰岛",
+        ["World Angler Isle"] = "世界垂钓者岛",
+        ["Weather Isle"]      = "天气岛",
+        ["Mystic Reef Isle"]  = "神秘珊瑚岛",
+    }
+}
+
+-- 传送角色到目标 CFrame（带防弹飞）
+function fourBeastsState.TeleportTo(targetCF)
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root or not targetCF then return end
+    root.AssemblyLinearVelocity = Vector3.zero
+    root.CFrame = targetCF + Vector3.new(0, 1.5, 0)
+    task.wait(0.12)
+    root.CFrame = targetCF
+    task.wait(0.12)
+end
+
+-- 相机对准 NPC
+function fourBeastsState.OrientCameraTo(focusPos, standPos)
+    local cam = Workspace.CurrentCamera or Camera
+    if not cam or not focusPos then return end
+    pcall(function()
+        local dir = standPos and (standPos - focusPos) or -cam.CFrame.LookVector
+        local dir2D = Vector3.new(dir.X, 0, dir.Z)
+        if dir2D.Magnitude < 0.1 then
+            dir2D = Vector3.new(0, 0, 1)
+        else
+            dir2D = dir2D.Unit
+        end
+        local refPos = standPos or (focusPos + dir2D * 3.0)
+        local camPos = refPos + (dir2D * 4.5) + Vector3.new(0, 2.2, 0)
+        local camFocus = focusPos + Vector3.new(0, 0.8, 0)
+        cam.CameraType = Enum.CameraType.Custom
+        cam.CFrame = CFrame.lookAt(camPos, camFocus)
+        cam.Focus = CFrame.new(camFocus)
+    end)
+end
+
+-- 定位楚天骄 NPC（含缓存）
+function fourBeastsState.FindChuTianjiao()
+    if fourBeastsState.cachedNPCModel and fourBeastsState.cachedNPCModel.Parent then
+        return fourBeastsState.cachedNPCModel, fourBeastsState.cachedNPCPos, fourBeastsState.cachedNPCPrompt, fourBeastsState.cachedNPCCFrame
+    end
+
+    local model = workspace.NPC and workspace.NPC.Function and workspace.NPC.Function["Chu Tianjiao"]
+    if not model then return nil, nil, nil, nil end
+
+    local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
+    local hrp = (prompt and prompt.Parent:IsA("BasePart") and prompt.Parent)
+        or model:FindFirstChild("HumanoidRootPart")
+        or model:FindFirstChild("Torso")
+        or model:FindFirstChild("UpperTorso")
+        or model.PrimaryPart
+        or model:FindFirstChildWhichIsA("BasePart")
+    local cf = (hrp and hrp.CFrame) or (model:IsA("Model") and model:GetPivot()) or model.CFrame
+    if cf then
+        fourBeastsState.cachedNPCModel = model
+        fourBeastsState.cachedNPCPos = cf.Position
+        fourBeastsState.cachedNPCCFrame = cf
+        fourBeastsState.cachedNPCPrompt = prompt
+        return model, cf.Position, prompt, cf
+    end
+    return nil, nil, nil, nil
+end
+
+-- 飞到 NPC 面前 + 调相机 + 放宽 Prompt
+function fourBeastsState.TeleportToNPC()
+    local npcModel, npcPos, prompt, npcCFrame = fourBeastsState.FindChuTianjiao()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        pcall(function() hum.Sit = false; hum:UnequipTools() end)
+    end
+    if Events and Events:FindFirstChild("CancelCast") then
+        pcall(function() Events.CancelCast:FireServer() end)
+    end
+
+    if not npcCFrame then
+        return nil, nil, nil, nil
+    end
+
+    local focusPos = npcCFrame.Position
+    local fwd = npcCFrame.LookVector
+    local fwd2D = Vector3.new(fwd.X, 0, fwd.Z)
+    if fwd2D.Magnitude > 0.05 then fwd2D = fwd2D.Unit else fwd2D = Vector3.new(0, 0, 1) end
+    local standPos = focusPos + (fwd2D * 2.8)
+    standPos = Vector3.new(standPos.X, focusPos.Y, standPos.Z)
+    local targetCF = CFrame.lookAt(standPos, Vector3.new(focusPos.X, standPos.Y, focusPos.Z))
+
+    if root then
+        local dist = (root.Position - standPos).Magnitude
+        if dist > 3.0 then
+            fourBeastsState.TeleportTo(targetCF)
+            task.wait(0.25)
+        else
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.CFrame = targetCF
+            task.wait(0.08)
+        end
+        fourBeastsState.OrientCameraTo(focusPos, standPos)
+    end
+
+    if prompt then
+        pcall(function()
+            prompt.RequiresLineOfSight = false
+            prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 10, 35)
+            prompt.Enabled = true
+        end)
+    end
+
+    return npcModel, focusPos, prompt, standPos
+end
+
+-- 关闭对话（Esc）
+function fourBeastsState.CloseDialogueIfAny()
+    pcall(function()
+        local vim = game:GetService("VirtualInputManager")
+        if vim then
+            vim:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
+            task.wait(0.05)
+            vim:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
+        end
+    end)
+end
+
+-- 传送到楚天骄并打开对话（Prompt + E 键 + Mobile 点击）
+function fourBeastsState.OpenDialogue()
+    local npcModel, focusPos, prompt, standPos = fourBeastsState.TeleportToNPC()
+    if not npcModel then return false end
+
+    if prompt then
+        pcall(TriggerPrompt, prompt)
+    end
+
+    -- 模拟 E 键
+    pcall(function()
+        local vim = game:GetService("VirtualInputManager")
+        if vim then
+            vim:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+            task.wait(0.08)
+            vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+        end
+    end)
+
+    -- 点击 Mobile UI 的 ProximityPrompts 按钮
+    pcall(function()
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        local pPrompts = pg and pg:FindFirstChild("ProximityPrompts")
+        if pPrompts then
+            local btn = pPrompts:FindFirstChild("TextButton", true)
+            if btn and btn:IsA("GuiButton") and btn.Visible then
+                if firesignal and btn.Activated then
+                    pcall(firesignal, btn.Activated)
+                end
+                if getconnections and btn.Activated then
+                    for _, c in ipairs(getconnections(btn.Activated)) do
+                        pcall(function() c:Fire() end)
+                    end
+                end
+            end
+        end
+    end)
+
+    return true
+end
+
+-- 读取对话框文本（只收集含 Four Sacred Beasts 的文本）
+function fourBeastsState.ReadDialogueText()
+    local ok, result = pcall(function()
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        if not pg then return nil end
+
+        local found = {}
+        local function scan(root)
+            for _, d in ipairs(root:GetDescendants()) do
+                if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
+                    local t = d.Text
+                    if type(t) == "string" and #t > 0 then
+                        if t:find("Four Sacred Beasts", 1, true) then
+                            table.insert(found, t)
+                        end
+                    end
+                end
+            end
+        end
+
+        local mainGui = pg:FindFirstChild("MainGui")
+        if mainGui then scan(mainGui) end
+        if #found == 0 then scan(pg) end
+
+        if #found > 0 then return table.concat(found, "\n") end
+        return nil
+    end)
+    if ok then return result end
+    return nil
+end
+
+-- 分类：beast / empty / unknown
+function fourBeastsState.Classify(text)
+    if not text or text == "" then return "unknown" end
+
+    -- ① 括号版（半角/全角）兼容未来可能的格式
+    local isleEn = text:match("appeared at%s*%((.-)%)")
+        or text:match("appeared at%s*（(.-)）")
+    if isleEn and isleEn ~= "" then
+        isleEn = isleEn:gsub("^%s+", ""):gsub("%s+$", "")
+        fourBeastsState.announcedIsle = isleEn
+        return "beast"
+    end
+
+    -- ② 遍历 isleMap（按长度降序避免岛名互相包含时误匹配）
+    --    当前游戏实际格式："appeared at Sovereign Isle!"（无括号）
+    local sortedIsles = {}
+    for k in pairs(fourBeastsState.isleMap) do
+        table.insert(sortedIsles, k)
+    end
+    table.sort(sortedIsles, function(a, b) return #a > #b end)
+
+    local lowerText = text:lower()
+    for _, enName in ipairs(sortedIsles) do
+        if lowerText:find("appeared at " .. enName:lower(), 1, true) then
+            fourBeastsState.announcedIsle = enName
+            return "beast"
+        end
+    end
+
+    -- ③ 通用兜底：appeared at <XXX Isle>
+    local isleEn2 = text:match("appeared at%s+([%w%s]-Isle)")
+    if isleEn2 and isleEn2 ~= "" then
+        isleEn2 = isleEn2:gsub("^%s+", ""):gsub("%s+$", "")
+        local lower = isleEn2:lower()
+        for k in pairs(fourBeastsState.isleMap) do
+            if k:lower() == lower then
+                fourBeastsState.announcedIsle = k
+                return "beast"
+            end
+        end
+    end
+
+    -- ④ 空服文本
+    if text:find("no trace of the Four Sacred Beasts", 1, true)
+       or text:find("bears no trace", 1, true) then
+        return "empty"
+    end
+
+    return "unknown"
+end
+
+-- 英文岛名 → islands 表项
+function fourBeastsState.FindIsle(enName)
+    if not enName then return nil end
+    enName = enName:gsub("^%s+", ""):gsub("%s+$", "")
+
+    local cn = fourBeastsState.isleMap[enName]
+
+    -- 大小写不敏感回退（防游戏原文大小写不一致）
+    if not cn then
+        local lower = enName:lower()
+        for k, v in pairs(fourBeastsState.isleMap) do
+            if k:lower() == lower then
+                cn = v
+                break
+            end
+        end
+    end
+
+    if not cn then return nil end
+    for _, isl in ipairs(islands) do
+        if isl.name:find(cn, 1, true) then
+            return isl
+        end
+    end
+    return nil
+end
+
+-- 传送到目标岛屿
+function fourBeastsState.TeleportToIsle(enName)
+    local isl = fourBeastsState.FindIsle(enName)
+    if not isl then
+        ShowNotification("四圣兽", "未知岛屿：" .. tostring(enName), "WARN", 5)
+        return false
+    end
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then
+        ShowNotification("四圣兽", "角色未就绪，无法传送", "WARN", 4)
+        return false
+    end
+    root.CFrame = CFrame.new(isl.pos + Vector3.new(0, 3, 0))
+    ShowNotification("四圣兽", "已到达 " .. isl.name, "SUCCESS", 3)
+    return true
+end
+
+-- 跳服持久化（写盘 + queue_on_teleport）
+function fourBeastsState.ServerHopWithPersist()
+    local now = tick()
+    if now - fourBeastsState.lastHop < 3 then return end
+    fourBeastsState.lastHop = now
+
+    if writefile then
+        pcall(writefile, "fourbeasts_autostart.txt", "1")
+    end
+
+    local hasQOT = queue_on_teleport ~= nil
+    if hasQOT then
+        local scriptUrl = (getgenv and getgenv().IdenticalScriptUrl) or nil
+        local code
+        if scriptUrl then
+            code = string.format([[
+                getgenv().AutoFourBeastsOnJoin = true
+                pcall(function() loadstring(game:HttpGet("%s"))() end
+            ]], scriptUrl)
+        else
+            code = [[
+                getgenv().AutoFourBeastsOnJoin = true
+            ]]
+        end
+        pcall(queue_on_teleport, code)
+    end
+
+    if not writefile and not hasQOT and fourBeastsState.supportsAutoRestart then
+        ShowNotification("四圣兽", "当前执行器不支持自动重启，跳服后请手动重开脚本", "WARN", 8)
+        fourBeastsState.supportsAutoRestart = false
+    end
+
+    ShowNotification("四圣兽", "未检测到四圣兽，正在切换服务器...", "WARN", 4)
+    ServerHop()
+end
+
+-- 主循环
+function fourBeastsState.Start()
+    if fourBeastsState.running then return end
+    fourBeastsState.running = true
+
+    task.spawn(function()
+        task.wait(0.5)
+
+        while isRunning and Config.AutoFourBeastsFarm do
+            if not isRunning or not Config.AutoFourBeastsFarm then break end
+
+            -- 1) 关闭上一轮可能的对话
+            fourBeastsState.CloseDialogueIfAny()
+            task.wait(0.3)
+            if not isRunning or not Config.AutoFourBeastsFarm then break end
+
+            -- 2) 传送到楚天骄并打开对话
+            local opened = fourBeastsState.OpenDialogue()
+            if not opened then
+                ShowNotification("四圣兽", "无法到达楚天骄，正在切换服务器...", "WARN", 4)
+                fourBeastsState.ServerHopWithPersist()
+                local waited = 0
+                while waited < 5 and isRunning and Config.AutoFourBeastsFarm do
+                    task.wait(0.5); waited = waited + 0.5
+                end
+                if not isRunning or not Config.AutoFourBeastsFarm then break end
+                continue
+            end
+
+            -- 3) 等待对话框渲染
+            task.wait(1.2)
+            if not isRunning or not Config.AutoFourBeastsFarm then break end
+
+            -- 4) 读取并分类
+            local text = fourBeastsState.ReadDialogueText()
+            local kind = fourBeastsState.Classify(text)
+
+            if kind == "beast" then
+                -- 有四圣兽 → 传送过去
+                local en = fourBeastsState.announcedIsle
+                local cn = fourBeastsState.isleMap[en] or tostring(en)
+                ShowNotification("四圣兽", "四圣兽刷新：" .. cn .. "，正在传送...", "SUCCESS", 4)
+                fourBeastsState.TeleportToIsle(en)
+                task.wait(2)
+                -- 不 break，继续下一轮检测（四圣兽可能连刷）
+            else
+                -- empty / unknown → 跳服
+                fourBeastsState.ServerHopWithPersist()
+                local waited = 0
+                while waited < 5 and isRunning and Config.AutoFourBeastsFarm do
+                    task.wait(0.5); waited = waited + 0.5
+                end
+                if not isRunning or not Config.AutoFourBeastsFarm then break end
+            end
+        end
+
+        fourBeastsState.running = false
+    end)
+end
+
+-- 启动时若已开启（跳服恢复 / 配置文件），自动开始
+if Config.AutoFourBeastsFarm then
+    task.delay(2, function()
+        if isRunning and Config.AutoFourBeastsFarm and fourBeastsState and fourBeastsState.Start then
+            fourBeastsState.Start()
+        end
+    end)
+end
+
+createCategoryHeader(tabVisuals, "世界与实体ESP")
+local espCard = createCardGroup(tabVisuals)
+
+createToggleRow(espCard, "神灵ESP", "高亮活跃的神灵", Config.ESP_GodSpirit, function(v) Config.ESP_GodSpirit = v end)
+createToggleRow(espCard, "秘密鱼竿ESP", "高亮所有秘密鱼竿位置", Config.ESP_SecretRod, function(v) Config.ESP_SecretRod = v end)
+createToggleRow(espCard, "船只ESP", "高亮生成的船只", Config.ESP_Boats, function(v) Config.ESP_Boats = v end)
+createToggleRow(espCard, "茅山ESP", "高亮茅山NPC/鱼竿", Config.ESP_Maoshan, function(v) Config.ESP_Maoshan = v end)
+createToggleRow(espCard, "道士ESP", "高亮道士NPC/鱼竿", Config.ESP_Taoist, function(v) Config.ESP_Taoist = v end)
+createToggleRow(espCard, "Boss ESP", "高亮活跃的Boss生成点", Config.ESP_Boss, function(v) Config.ESP_Boss = v end)
+createToggleRow(espCard, "玩家ESP", "高亮其他玩家及距离（显示血量/手持鱼竿/状态）", Config.ESP_Players, function(v) Config.ESP_Players = v end)
+createToggleRow(espCard, "鱼目标光圈", "收线时在钩住的鱼周围显示发光红色光圈", Config.FishRedRing, function(v) Config.FishRedRing = v end)
+createToggleRow(espCard, "红圈显示重量 & 突变", "在鱼圈上方显示鱼名、突变类型、重量（kg）和血量", Config.ShowFishWeightRing, function(v) Config.ShowFishWeightRing = v end)
+createToggleRow(espCard, "隐藏玩家默认名称", "隐藏其他玩家头顶的原生名牌、称号和血条，只保留 ESP 卡片", Config.HideOverheadNames, function(v) Config.HideOverheadNames = v end)
+
+createCategoryHeader(tabVisuals, "光照与性能")
+local perfCard = createCardGroup(tabVisuals)
+
+createToggleRow(perfCard, "无雾无雨", "清除世界雾霾、雨粒子及闪电", Config.NoFog, function(v)
+    Config.NoFog = v
+    if v then
+        Lighting.FogEnd = 1000000
+        Lighting.FogStart = 1000000
+        local atmo = Lighting:FindFirstChildWhichIsA("Atmosphere")
+        if atmo then
+            atmo.Density = 0
+            atmo.Haze = 0
+            atmo.Glare = 0
+        end
+        for _, d in ipairs(Camera:GetDescendants()) do
+            if d:IsA("ParticleEmitter") then d.Enabled = false end
+        end
+    else
+        Lighting.FogEnd = 100000
+        Lighting.FogStart = 0
+        local atmo = Lighting:FindFirstChildWhichIsA("Atmosphere")
+        if atmo then
+            atmo.Density = 0.3
+            atmo.Haze = 0.5
+        end
+    end
+end)
+
+createToggleRow(perfCard, "全亮", "设置最大环境亮度与可见度", Config.Fullbright, function(v)
+    Config.Fullbright = v
+    if not v then
+        Lighting.Brightness = 2
+        Lighting.Ambient = Color3.fromRGB(70, 70, 70)
+        Lighting.OutdoorAmbient = Color3.fromRGB(70, 70, 70)
+        Lighting.GlobalShadows = true
+    end
+end)
+
+createToggleRow(perfCard, "性能模式(低画质)", "禁用阴影并降低渲染负载", Config.PerformanceMode, function(v)
+    Config.PerformanceMode = v
+    Lighting.GlobalShadows = not v
+end)
+
+createToggleRow(perfCard, "隐藏游戏UI", "隐藏Roblox游戏UI以获得清晰视野", Config.HideGameUI, function(v)
+    Config.HideGameUI = v
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if pg then
+        if pg:FindFirstChild("MainGui") then pg.MainGui.Enabled = not v end
+        if pg:FindFirstChild("Fisher_GUI") then pg.Fisher_GUI.Enabled = not v end
+    end
+end)
+
+createButtonRow(perfCard, "解锁全部图鉴", "在游戏图鉴中显示所有109种鱼及物品", "解锁图鉴", function()
+    local count = 0
+    local pData = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild(LocalPlayer.UserId)
+    if pData and pData:FindFirstChild("Index") then
+        for _, b in ipairs(pData.Index:GetChildren()) do
+            if b:IsA("BoolValue") then b.Value = true end
+        end
+    end
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if pg and pg:FindFirstChild("MainGui") and pg.MainGui:FindFirstChild("Menu") and pg.MainGui.Menu:FindFirstChild("Index") then
+        local indexList = pg.MainGui.Menu.Index:FindFirstChild("IndexFrame") and pg.MainGui.Menu.Index.IndexFrame:FindFirstChild("Indexlist")
+        if indexList then
+            for _, f in ipairs(indexList:GetChildren()) do
+                if f:IsA("Frame") then
+                    count = count + 1
+                    local btn = f:FindFirstChild("Button")
+                    if btn then
+                        local title = btn:FindFirstChild("Title")
+                        if title and title:IsA("TextLabel") then title.Text = f.Name end
+                        local detail = btn:FindFirstChild("Detail")
+                        if detail then
+                            detail.Visible = true
+                            for _, img in ipairs(detail:GetDescendants()) do
+                                if img:IsA("ImageLabel") then img.ImageColor3 = Color3.new(1, 1, 1) end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    ShowNotification("图鉴已解锁", string.format("已在游戏图鉴中显示 %d 种鱼！", count > 0 and count or 109), "SUCCESS")
+end)
+
+createCategoryHeader(tabPlayer, "玩家移动")
+local moveCard = createCardGroup(tabPlayer)
+
+createToggleRow(moveCard, "步行加速", "提高移动速度", Config.WalkSpeedEnabled, function(v)
+    Config.WalkSpeedEnabled = v
+    local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+    if hum then hum.WalkSpeed = v and Config.WalkSpeedValue or 16 end
+end)
+createSliderRow(moveCard, "速度值", "目标步行速度", 16, 120, Config.WalkSpeedValue, false, "", function(v)
+    Config.WalkSpeedValue = v
+    if Config.WalkSpeedEnabled then
+        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum.WalkSpeed = v end
+    end
+end)
+
+createToggleRow(moveCard, "飞行", "使用WASD和空格/Shift自由飞行", Config.FlyEnabled, function(v) Config.FlyEnabled = v end)
+createSliderRow(moveCard, "飞行速度", "飞行移动速度", 20, 150, Config.FlySpeed, false, "", function(v) Config.FlySpeed = v end)
+createToggleRow(moveCard, "无限跳跃", "在空中无限跳跃", Config.InfiniteJump, function(v) Config.InfiniteJump = v end)
+createToggleRow(moveCard, "水上行走", "在海面上行走(海平面: 0)", Config.WalkOnWater, function(v) Config.WalkOnWater = v end)
+createToggleRow(moveCard, "穿墙", "穿过固体障碍和墙壁", Config.Noclip, function(v) Config.Noclip = v end)
+
+createCategoryHeader(tabPlayer, "防挂机与稳定性")
+local stabCard = createCardGroup(tabPlayer)
+createToggleRow(stabCard, "防挂机", "防止Roblox 20分钟空闲断开", Config.AntiAFK, function(v) Config.AntiAFK = v end)
+createToggleRow(stabCard, "被踢自动重连", "自动重新连接到服务器", Config.AutoRejoin, function(v) Config.AutoRejoin = v end)
+createToggleRow(stabCard, "内存日志", "每 5 分钟把内存/缓存数量打印到控制台（排查闪退）", Config.MemoryLog, function(v) Config.MemoryLog = v end)
+
+createCategoryHeader(tabProfiles, "配置文件管理")
+local profCard = createCardGroup(tabProfiles)
+
+createDropdownRow(profCard, "窗口大小", " ", {"手机", "电脑"}, Config.WindowSize, function(v)
+    Config.WindowSize = v
+    ApplyWindowSize()
+    RefreshTracked()
+    pcall(SaveProfile)
+    ShowNotification("窗口大小", "已切换为: " .. v, "SUCCESS")
+end)
+
+createButtonRow(profCard, "保存配置", "将所有设置保存到JSON文件", "保存配置", function()
+    if SaveProfile() then
+        ShowNotification("配置已保存", "配置文件 'default.json' 保存成功！", "SUCCESS")
+    else
+        ShowNotification("配置错误", "保存配置文件失败。", "ERROR")
+    end
+end)
+
+createButtonRow(profCard, "加载配置", "从JSON文件加载设置", "加载配置", function()
+    if LoadProfile() then
+        ShowNotification("配置已加载", "配置文件 'default.json' 加载成功！", "SUCCESS")
+    else
+        ShowNotification("配置错误", "未找到已保存的配置文件。", "WARN")
+    end
+end)
+
+createToggleRow(profCard, "注入时自动加载配置", "启动时自动加载配置", Config.AutoLoadProfile, function(v) Config.AutoLoadProfile = v end)
+
+createCategoryHeader(tabProfiles, "会话操作")
+local credCard = createCardGroup(tabProfiles)
+createButtonRow(credCard, "卸载脚本", "干净地卸载脚本并恢复光照", "卸载", UnloadScript)
+
+-- ⬇⬇⬇ 伪装（配置文件 Tab 的第三个子分类，只修改本地 TextLabel 显示） ⬇⬇⬇
+-- 注意：整份脚本主 chunk 的局部变量/寄存器已接近 Luau 上限，直接新增顶层 local
+-- 会导致整份脚本编译失败；因此伪装模块整体放在独立函数作用域中安装。
+HeavyweightFakeDisplaySetup = function(tabProfiles)
+    -- ---------- 工具函数 ----------
+    local function FormatNumber(n)
+        local num = tonumber(n)
+        if not num and type(n) == "string" then
+            num = tonumber((n:gsub("[,%s%$]", "")))
+        end
+        if not num then return tostring(n) end
+        local negative = (num < 0) and "-" or ""
+        local formatted = tostring(math.floor(math.abs(num)))
+        while true do
+            local newText, count = formatted:gsub("^(%d+)(%d%d%d)", "%1,%2")
+            formatted = newText
+            if count == 0 then break end
+        end
+        return negative .. formatted
+    end
+
+    local function FindFirstTextLabel(parent)
+        if not parent then return nil end
+        local okLabel, isLabel = pcall(function() return parent:IsA("TextLabel") end)
+        if okLabel and isLabel then return parent end
+        local ok, found = pcall(function()
+            for _, descendant in ipairs(parent:GetDescendants()) do
+                if descendant:IsA("TextLabel") then
+                    return descendant
+                end
+            end
+        end)
+        if ok and typeof(found) == "Instance" and found:IsA("TextLabel") then
+            return found
+        end
+        return nil
+    end
+
+    local function GetMainGuiSafe()
+        local ok, mainGui = pcall(function()
+            local pg = LocalPlayer:FindFirstChild("PlayerGui")
+            return pg and pg:FindFirstChild("MainGui")
+        end)
+        if ok and mainGui then return mainGui end
+        return nil
+    end
+
+    local statLabelCache = {}
+
+    local function FindLabelByText(parent, targetText)
+        if not parent or targetText == nil then return nil end
+        local ok, found = pcall(function()
+            for _, descendant in ipairs(parent:GetDescendants()) do
+                if descendant:IsA("TextLabel") and descendant.Text == targetText then
+                    return descendant
+                end
+            end
+        end)
+        if ok and typeof(found) == "Instance" and found:IsA("TextLabel") then
+            return found
+        end
+        return nil
+    end
+
+    -- 兼容旧结构：<名称> 是 ValueBase 时，在同级 Stats 下按原值匹配显示 TextLabel
+    local function FindStatLabelByValue(statObj)
+        local ok, found = pcall(function()
+            local parent = statObj.Parent
+            local rawValue = statObj.Value
+            if not parent or rawValue == nil then return nil end
+            local rawText = tostring(rawValue)
+            local formattedText = FormatNumber(rawValue)
+            local candidates = {rawText, formattedText, "$" .. rawText, "$" .. formattedText}
+            for _, targetText in ipairs(candidates) do
+                local label = FindLabelByText(parent, targetText)
+                if label then return label end
+            end
+            return nil
+        end)
+        if ok and typeof(found) == "Instance" and found:IsA("TextLabel") then
+            return found
+        end
+        return nil
+    end
+
+    -- 读取 MainGui.Main.Stats.<名称>.Value：
+    --  1) 新结构：Value 本身就是 TextLabel，直接返回；
+    --  2) 旧结构：Value 不是 TextLabel，则按原值在 Stats 下查找显示标签（带缓存）。
+    local function GetStatLabel(statName)
+        local ok, label = pcall(function()
+            local mainGui = GetMainGuiSafe()
+            if not mainGui then return nil end
+            local main = mainGui:FindFirstChild("Main")
+            local stats = main and main:FindFirstChild("Stats")
+            local statObj = stats and stats:FindFirstChild(statName)
+            if not statObj then return nil end
+            local valueLabel = statObj:FindFirstChild("Value")
+            if valueLabel and valueLabel:IsA("TextLabel") then
+                return valueLabel
+            end
+            local cached = statLabelCache[statName]
+            if cached and cached.Parent then return cached end
+            local found = FindStatLabelByValue(statObj)
+            if found then statLabelCache[statName] = found end
+            return found
+        end)
+        if ok and typeof(label) == "Instance" and label:IsA("TextLabel") then
+            return label
+        end
+        return nil
+    end
+
+    -- EXP 原文本若是 "x2" / "EXP x2" 这类格式，只替换 x 后面的数字，保留前缀
+    local function BuildExpText(currentText, value)
+        local text = tostring(value)
+        if type(currentText) == "string" and tonumber(text) then
+            local replaced, count = currentText:gsub("([xX×])(%d+%.?%d*)", function(prefix)
+                return prefix .. text
+            end, 1)
+            if count > 0 then return replaced end
+        end
+        return text
+    end
+
+    -- ---------- 伪装恢复（Reset） ----------
+    local fakeRestoreRecords = {}
+    local fakeInputBoxes = {}
+    local FAKE_SETTING_KEYS = {
+        "FakeExpBonus", "FakeId", "FakeLevel", "FakeCrystal",
+        "FakeEssenceOrb", "FakeTicket", "FakeCash",
+    }
+
+    local function RestoreFakeField(key)
+        local record = fakeRestoreRecords[key]
+        if not record then return end
+        local label = record.label
+        pcall(function()
+            if label and label.Parent and label.Text == record.fake then
+                label.Text = record.original
+            end
+        end)
+        fakeRestoreRecords[key] = nil
+    end
+
+    local function RestoreAllFakeTextsOnly()
+        for _, key in ipairs(FAKE_SETTING_KEYS) do
+            RestoreFakeField(key)
+        end
+    end
+
+    -- 卸载/重注入时只还原显示，不修改 Config；重新注入后按已保存配置再次伪装
+    if getgenv then
+        getgenv().IdenticalHeavyweightFakeRestore = RestoreAllFakeTextsOnly
+    end
+
+    local function RememberFakeOriginal(key, label, fakeText)
+        if not label then return end
+        local record = fakeRestoreRecords[key]
+        if record and record.label == label then
+            -- 游戏把标签刷新成了新的真实文本：更新“原文本”，确保恢复时用最新值
+            if label.Text ~= record.fake then
+                record.original = label.Text
+            end
+            record.fake = fakeText
+            return
+        end
+        if record then RestoreFakeField(key) end
+        fakeRestoreRecords[key] = {label = label, original = label.Text, fake = fakeText}
+    end
+
+    local fakeSaveVersion = 0
+    local function QueueFakeProfileSave()
+        -- 防抖：停止输入 1 秒后自动保存，行为对齐源脚本的“自动永久保存”
+        fakeSaveVersion = fakeSaveVersion + 1
+        local version = fakeSaveVersion
+        task.delay(1, function()
+            if version == fakeSaveVersion then
+                pcall(SaveProfile)
+            end
+        end)
+    end
+
+    local function ResetFakeTexts()
+        -- 清除所有伪装输入
+        for _, key in ipairs(FAKE_SETTING_KEYS) do
+            Config[key] = nil
+        end
+        -- 优先还原被覆盖的原文本（只在标签仍显示我们写入的伪装文本时还原）
+        for _, key in ipairs(FAKE_SETTING_KEYS) do
+            RestoreFakeField(key)
+        end
+        -- 清空界面输入框
+        for _, key in ipairs(FAKE_SETTING_KEYS) do
+            local box = fakeInputBoxes[key]
+            if box and box.Parent then
+                box.Text = ""
+            end
+        end
+        -- 与源脚本一致：恢复后立即持久化
+        pcall(SaveProfile)
+        pcall(function()
+            ShowNotification("伪装", "已清除全部伪装，并恢复真实显示文本！", "SUCCESS", 5)
+        end)
+    end
+
+    local function ApplyFakeTexts()
+        -- 1) 伪装 EXP 加成：对象可能是 TextLabel，也可能是内含 TextLabel 的 Frame
+        pcall(function()
+            local value = Config.FakeExpBonus
+            if value == nil or value == "" then
+                RestoreFakeField("FakeExpBonus")
+                return
+            end
+            local mainGui = GetMainGuiSafe()
+            if not mainGui then return end
+            local target = mainGui:GetChildren()[29]
+            if not target then return end
+            local label = FindFirstTextLabel(target)
+            if label then
+                local fakeText = BuildExpText(label.Text, value)
+                RememberFakeOriginal("FakeExpBonus", label, fakeText)
+                label.Text = fakeText
+            end
+        end)
+
+        -- 2) 伪装编号
+        pcall(function()
+            local value = Config.FakeId
+            if value == nil or value == "" then
+                RestoreFakeField("FakeId")
+                return
+            end
+            local mainGui = GetMainGuiSafe()
+            if not mainGui then return end
+            local label = mainGui:FindFirstChild("TextLabel")
+            if label and label:IsA("TextLabel") then
+                local fakeText = tostring(value)
+                RememberFakeOriginal("FakeId", label, fakeText)
+                label.Text = fakeText
+            end
+        end)
+
+        -- 3) 伪装等级：MainGui.Level.Value 本身是 TextLabel
+        pcall(function()
+            local value = Config.FakeLevel
+            if value == nil or value == "" then
+                RestoreFakeField("FakeLevel")
+                return
+            end
+            local mainGui = GetMainGuiSafe()
+            if not mainGui then return end
+            local levelObj = mainGui:FindFirstChild("Level")
+            if not levelObj then return end
+            local levelLabel = levelObj:FindFirstChild("Value")
+            if levelLabel and levelLabel:IsA("TextLabel") then
+                local fakeText = tostring(value)
+                RememberFakeOriginal("FakeLevel", levelLabel, fakeText)
+                levelLabel.Text = fakeText
+            end
+        end)
+
+        -- 4) 伪装钻石
+        pcall(function()
+            local value = Config.FakeCrystal
+            if value == nil or value == "" then
+                RestoreFakeField("FakeCrystal")
+                return
+            end
+            local label = GetStatLabel("Crystal")
+            if not label then return end
+            local fakeText = FormatNumber(value)
+            RememberFakeOriginal("FakeCrystal", label, fakeText)
+            label.Text = fakeText
+        end)
+
+        -- 5) 伪装升级石
+        pcall(function()
+            local value = Config.FakeEssenceOrb
+            if value == nil or value == "" then
+                RestoreFakeField("FakeEssenceOrb")
+                return
+            end
+            local label = GetStatLabel("EssenceOrb")
+            if not label then return end
+            local fakeText = FormatNumber(value)
+            RememberFakeOriginal("FakeEssenceOrb", label, fakeText)
+            label.Text = fakeText
+        end)
+
+        -- 6) 伪装票据
+        pcall(function()
+            local value = Config.FakeTicket
+            if value == nil or value == "" then
+                RestoreFakeField("FakeTicket")
+                return
+            end
+            local label = GetStatLabel("Ticket")
+            if not label then return end
+            local fakeText = FormatNumber(value)
+            RememberFakeOriginal("FakeTicket", label, fakeText)
+            label.Text = fakeText
+        end)
+
+        -- 7) 伪装金钱（只显示格式化数字，不加 $）
+        pcall(function()
+            local value = Config.FakeCash
+            if value == nil or value == "" then
+                RestoreFakeField("FakeCash")
+                return
+            end
+            local label = GetStatLabel("Cash")
+            if not label then return end
+            local fakeText = FormatNumber(value)
+            RememberFakeOriginal("FakeCash", label, fakeText)
+            label.Text = fakeText
+        end)
+    end
+
+    -- ---------- 文本框（数值可能超过 Slider 上限，统一用 TextBox） ----------
+    local function createFakeInput(parent, label, desc, key, placeholder)
+        local row = createBaseRow(parent, label, desc)
+        local box = Instance.new("TextBox")
+        box.Size = UDim2.new(0, 140, 0, 22)
+        box.Position = UDim2.new(1, -140, 0.5, -11)
+        box.BackgroundColor3 = Colors.InputBg
+        box.Font = Enum.Font.Gotham
+        box.PlaceholderText = placeholder or "留空=原文本"
+        box.PlaceholderColor3 = Colors.TextMuted
+        box.Text = Config[key] and tostring(Config[key]) or ""
+        box.TextColor3 = Colors.TextWhite
+        box.TextSize = 11
+        box.BorderSizePixel = 0
+        box.ClearTextOnFocus = false
+        box.Parent = row
+        fakeInputBoxes[key] = box
+        Instance.new("UICorner", box).CornerRadius = UDim.new(0, 3)
+        local pad = Instance.new("UIPadding"); pad.PaddingLeft = UDim.new(0, 6); pad.Parent = box
+        box:GetPropertyChangedSignal("Text"):Connect(function()
+            Config[key] = (box.Text ~= "") and box.Text or nil
+            pcall(ApplyFakeTexts) -- 输入后立即刷新，无需等待 0.1 秒循环
+            QueueFakeProfileSave()
+        end)
+        return box
+    end
+
+    -- ---------- UI（挂在现有「配置文件」Tab 下，作为第三个子分类） ----------
+    createCategoryHeader(tabProfiles, "伪装 / 本地显示修改")
+    local fakeCard = createCardGroup(tabProfiles)
+
+    createFakeInput(fakeCard, "伪装 EXP 加成", "修改顶部 EXP 显示（若原 UI 为 x 格式，只填数字）", "FakeExpBonus", "如 2.5")
+    createFakeInput(fakeCard, "伪装编号",     "修改顶部编号文本", "FakeId", "输入编号")
+    createFakeInput(fakeCard, "伪装等级",     "修改等级文本（直接输入完整字符串）", "FakeLevel", "如 Level: 999 [99999/99999]")
+    createFakeInput(fakeCard, "伪装钻石",     "自动千分位格式化", "FakeCrystal", "如 100000000")
+    createFakeInput(fakeCard, "伪装升级石",   "自动千分位格式化", "FakeEssenceOrb", "如 100000000")
+    createFakeInput(fakeCard, "伪装票据",     "自动千分位格式化", "FakeTicket", "如 100000000")
+    createFakeInput(fakeCard, "伪装金钱",     "自动千分位格式化（不带 $）", "FakeCash", "如 100000000")
+
+    createButtonRow(fakeCard, "恢复真实数值（Reset）",
+        "清除全部伪装输入，并恢复游戏原生显示文本",
+        "🔄 恢复真实", ResetFakeTexts)
+
+    -- 注入/设置变更后立即显示一次；之后每 0.1 秒强制覆盖一次
+    pcall(ApplyFakeTexts)
+    task.spawn(function()
+        while isRunning do
+            local anyFake = false
+            for _, k in ipairs(FAKE_SETTING_KEYS) do
+                local v = Config[k]
+                if v ~= nil and v ~= "" then anyFake = true; break end
+            end
+            if anyFake or next(fakeRestoreRecords) then
+                task.wait(0.1)
+                pcall(ApplyFakeTexts)
+            else
+                -- 没开伪装时降频，减少挂机时的无意义分配
+                task.wait(1.0)
+            end
+        end
+    end)
+end
+
+pcall(HeavyweightFakeDisplaySetup, tabProfiles)
+
+local lastCastTime = 0
+local lastSellTime = 0
+-- 原简易技能轮换的 lastSkillTime / skillKeys / skillIdx / SkillInterval
+-- 已迁入 comboState.legacy*（见上方 Smart Combo 模块），这里不再重复声明，
+-- 避免与 RunSmartCombo 的降级轮换互相干扰。
+local lastGachaTime = 0
+local lastBaitBuyTime = 0
+local lastQuestTime = 0
+local lastGodPrayTime = 0
+local lastEquipTime = 0
+local lastProgressionTime = 0
+local lastProtectTime = 0
+local lastBossFarmTime = 0 
+
+local craftMaterialFish = {
+    ["Mountain Fish"] = true,
+    ["Catfish"] = true,
+    ["Crimson Catfish"] = true,
+    ["Scarlet Fish"] = true,
+    ["Elder Scarlet Fish"] = true,
+    ["Octoparasitic Fish"] = true,
+    ["Tiger Mirefish"] = true,
+    ["Mirage Lanternfish"] = true,
+    ["Golden Guardian Fish"] = true,
+    ["Frost Kingfish"] = true,
+    ["Frost Queenfish"] = true,
+    ["Rainbow Dragonfish"] = true,
+    ["Sanguine Fish"] = true,
+}
+
+local BossDifficultyMap = {
+    ["简单"] = "Normal",
+    ["困难"] = "Hard",
+}
+
+local function IsHoldingRodOrFishing()
+    local char = LocalPlayer.Character
+    if not char then return false end
+
+    if char:GetAttribute("Fishing") == true then return true end
+    if char:GetAttribute("Minigame") == true then return true end
+
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if pg then
+        local mf = pg:FindFirstChild("MainGui")
+        if mf then
+            local fui = mf:FindFirstChild("Fishing")
+            if fui and fui.Visible then return true end
+        end
+    end
+
+    return false
+end
+
+local waterPlatform = Instance.new("Part")
+waterPlatform.Name = "IdenticalWaterPlatform"
+waterPlatform.Size = Vector3.new(60, 2, 60)
+waterPlatform.Anchored = true
+waterPlatform.CanCollide = false
+waterPlatform.Transparency = 1
+waterPlatform.Parent = Workspace
+table.insert(cleanUpInstances, waterPlatform)
+
+table.insert(activeConnections, RunService.Heartbeat:Connect(function(dt)
+    if not isRunning then return end
+    pcall(function()
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not root or not hum then return end
+        local now = tick()
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        local pData = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild(LocalPlayer.UserId)
+
+        if Config.WalkSpeedEnabled then
+            hum.WalkSpeed = Config.WalkSpeedValue
+        end
+
+        if Config.WalkOnWater then
+            waterPlatform.CFrame = CFrame.new(root.Position.X, 0, root.Position.Z)
+            waterPlatform.CanCollide = (root.Position.Y >= -1)
+        else
+            waterPlatform.CanCollide = false
+        end
+
+        if Config.Noclip then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
+        end
+
+        local isFishing = char:GetAttribute("Fishing") == true
+        local isMinigame = char:GetAttribute("Minigame") == true or (pg and pg:FindFirstChild("MainGui") and pg.MainGui:FindFirstChild("Fishing") and pg.MainGui.Fishing.Visible)
+        local isCD = char:GetAttribute("CDForTheNextThrow") == true
+        local isSwimming = char:GetAttribute("Swimming") == true
+
+        -- ⚔️ Smart Combo：小游戏由 false -> true 时重置状态
+        if isMinigame and not comboState.wasMinigame then
+            comboState.Reset()
+        end
+        comboState.wasMinigame = isMinigame
+
+        if isMinigame then
+            local fUI = pg and pg:FindFirstChild("MainGui") and pg.MainGui:FindFirstChild("Fishing")
+            if fUI and fUI.Visible then
+                if Config.AnchorBar then
+                    local barFrame = fUI:FindFirstChild("BarFrame")
+                    if barFrame and barFrame:FindFirstChild("Bar") then
+                        -- 直接置中，避免每帧创建一个 Tween 对象（长时间钓鱼时的 GC 压力）
+                        barFrame.Bar.Position = UDim2.new(0.5, 0, 0.5, 0)
+                    end
+                end
+
+                if Config.AutoSlam and fUI:FindFirstChild("PerfectButton") and fUI.PerfectButton.Visible then
+                    if Events:FindFirstChild("Slam") then
+                        Events.Slam:FireServer()
+                    end
+                end
+
+                if Config.AutoCharge and fUI:FindFirstChild("Charge") and fUI.Charge.Visible then
+                    if Events:FindFirstChild("Charge") then
+                        Events.Charge:FireServer()
+                    end
+                end
+
+                if Config.AnchorBar and (now - lastProgressionTime >= 0.08) then
+                    if Events and Events:FindFirstChild("UpdateFishProgression") then
+                        Events.UpdateFishProgression:FireServer()
+                    end
+                    lastProgressionTime = now
+                end
+
+                -- ⚔️ 智能技能连招：内部自带 0.12s 决策节流，
+                -- SmartComboEnabled=false 时回落原简易 Z/X/C/V 轮换（comboState.legacy*）。
+                if isRunning then
+                    RunSmartCombo(fUI, now)
+                end
+            end
+        elseif isFishing then
+            lastCastTime = now
+        else
+            if Config.AutoCast and not isCD and not isSwimming and (now - lastCastTime >= Config.CastDelay) then
+                local canCast = true
+                if pData and pData:FindFirstChild("InventoryLimit") then
+                    local invCount = 0
+                    if pData:FindFirstChild("Inventory") then invCount = invCount + #pData.Inventory:GetChildren() end
+                    if pData:FindFirstChild("Hotbar") then
+                        for _, item in ipairs(pData.Hotbar:GetChildren()) do
+                            if item:FindFirstChild("Quantity") then invCount = invCount + item.Quantity.Value else invCount = invCount + 1 end
+                        end
+                    end
+                    if invCount >= pData.InventoryLimit.Value then
+                        canCast = false
+                        if Config.AutoSell and (now - lastSellTime >= 5.0) and Events:FindFirstChild("SellFish") then
+                            if (Config.MaterialFarming or Config.AutoFavouriteFish) and pData:FindFirstChild("Inventory") then
+    for _, item in ipairs(pData.Inventory:GetChildren()) do
+        local itemName = item.Name
+        local fishNamePart = itemName:match("^(.-)%s*|") or itemName
+        local isFav = item:FindFirstChild("Favorite") and item.Favorite.Value == true
+        local isTarget   = Config.AutoFavouriteFish and Config.FavouriteFishNames[fishNamePart] == true
+        local isMaterial = Config.MaterialFarming and craftMaterialFish[fishNamePart]
+        local isFavSuffix = itemName:lower():match("favorite%s*$") ~= nil
+if not isFav and not isFavSuffix and (isMaterial or isTarget) then
+    local ev = Events:FindFirstChild("FavoriteItem")
+    if ev then ev:FireServer(itemName) end
+end
+    end
+end
+                            Events.SellFish:FireServer("All")
+                            lastSellTime = now
+                        end
+                    end
+                end
+
+                if Config.AutoSell and (now - lastSellTime >= Config.SellInterval) and Events:FindFirstChild("SellFish") then
+    if (Config.MaterialFarming or Config.AutoFavouriteFish) and pData and pData:FindFirstChild("Inventory") then
+        for _, item in ipairs(pData.Inventory:GetChildren()) do
+            local itemName = item.Name
+            local fishNamePart = itemName:match("^(.-)%s*|") or itemName
+            local isFav = item:FindFirstChild("Favorite") and item.Favorite.Value == true
+            local isTarget   = Config.AutoFavouriteFish and Config.FavouriteFishNames[fishNamePart] == true
+            local isMaterial = Config.MaterialFarming and craftMaterialFish[fishNamePart]
+            local isFavSuffix = itemName:lower():match("favorite%s*$") ~= nil
+if not isFav and not isFavSuffix and (isMaterial or isTarget) then
+    local ev = Events:FindFirstChild("FavoriteItem")
+    if ev then ev:FireServer(itemName) end
+end
+        end
+    end
+    Events.SellFish:FireServer("All")
+    lastSellTime = now
+end
+
+                if (Config.MaterialFarming or Config.AutoFavouriteFish) and (now - lastProtectTime >= 1.5) and pData and pData:FindFirstChild("Inventory") then
+    lastProtectTime = now
+    for _, item in ipairs(pData.Inventory:GetChildren()) do
+        local itemName = item.Name
+        local fishNamePart = itemName:match("^(.-)%s*|") or itemName
+        local isFav = item:FindFirstChild("Favorite") and item.Favorite.Value == true
+        local isFavSuffix = itemName:lower():match("favorite%s*$") ~= nil
+if not isFav and not isFavSuffix then
+    local isTarget   = Config.AutoFavouriteFish and Config.FavouriteFishNames[fishNamePart] == true
+    local isMaterial = Config.MaterialFarming and craftMaterialFish[fishNamePart]
+    if isMaterial or isTarget then
+        local ev = Events:FindFirstChild("FavoriteItem")
+        if ev then ev:FireServer(itemName) end
+    end
+end
+    end
+end
+
+                if canCast and Events and Events:FindFirstChild("Fishing") then
+                    Events.Fishing:FireServer(root.CFrame)
+                    lastCastTime = now
+                end
+            end
+        end
+
+        if (now - lastEquipTime >= 5.0) and pData then
+            lastEquipTime = now
+            if Config.AutoEquipBestBait and pData:FindFirstChild("Bait") and pData:FindFirstChild("EquippedBait") and Events:FindFirstChild("EquipBait") then
+                local bestBait = nil
+                local bestLuck = -1
+                local baitLuckMap = {
+                    ["Ancestral Bait"] = 50,
+                    ["Elite Bait"] = 30,
+                    ["Corrupted Essence Bait"] = 18,
+                    ["Crude Mash Bait"] = 8,
+                    ["Basic Bait"] = 3
+                }
+                for bName, bLuck in pairs(baitLuckMap) do
+                    local bVal = pData.Bait:FindFirstChild(bName)
+                    if bVal and bVal.Value > 0 and bLuck > bestLuck then
+                        bestLuck = bLuck
+                        bestBait = bName
+                    end
+                end
+                if bestBait and pData.EquippedBait.Value ~= bestBait then
+                    Events.EquipBait:InvokeServer(bestBait)
+                end
+            end
+
+            if Config.AutoEquipBestRod and pData:FindFirstChild("FishingRodInventory") and pData:FindFirstChild("FishingRod") and Events:FindFirstChild("EquipFishingRod") then
+                local bestRod = nil
+                local bestPower = -1
+                for _, r in ipairs(allRods) do
+                    local rFolder = pData.FishingRodInventory:FindFirstChild(r.name)
+                    local isOwned = rFolder and rFolder:FindFirstChild("Owned") and rFolder.Owned.Value == true
+                    if isOwned and r.power > bestPower then
+                        bestPower = r.power
+                        bestRod = r.name
+                    end
+                end
+                if bestRod and pData.FishingRod.Value ~= bestRod then
+                    Events.EquipFishingRod:InvokeServer(bestRod)
+                end
+            end
+
+            if Config.AutoEquipBestOrb and pData:FindFirstChild("Orb") and Events:FindFirstChild("EquipOrb") then
+                local orbs = pData.Orb:GetChildren()
+                if #orbs > 0 then
+                    local bestOrb = orbs[#orbs].Name
+                    Events.EquipOrb:InvokeServer(bestOrb)
+                end
+            end
+
+            if pData:FindFirstChild("FishingRod") and pData.FishingRod.Value ~= "" then infoEquippedRod.Set(pData.FishingRod.Value) end
+            if pData:FindFirstChild("EquippedBait") and pData.EquippedBait.Value ~= "" then infoEquippedBait.Set(pData.EquippedBait.Value) end
+            if pData:FindFirstChild("FishCaught") then infoFishCaught.Set(tostring(pData.FishCaught.Value)) end
+            if pData:FindFirstChild("Cash") then infoCash.Set("$" .. tostring(pData.Cash.Value)) end
+        end
+
+        if Config.AutoSell and (now - lastSellTime >= Config.SellInterval) then
+            if Events and Events:FindFirstChild("SellFish") then
+                Events.SellFish:FireServer("All")
+                lastSellTime = now
+            end
+        end
+
+        if Config.AutoPrayGodSpirit and (now - lastGodPrayTime >= 3.0) then
+            if Workspace:FindFirstChild("NPC") then
+                local sp = Workspace.NPC:FindFirstChild("Spirit") or Workspace.NPC:FindFirstChild("God")
+                if sp then
+                    for _, d in ipairs(sp:GetDescendants()) do
+                        if d:IsA("ProximityPrompt") then
+                            TriggerPrompt(d)
+                            lastGodPrayTime = now
+                        end
+                    end
+                end
+            end
+        end
+
+  if Config.AutoTicketQuest and (now - lastQuestTime >= 2.0) then
+    lastQuestTime = now
+    task.spawn(function()
+        local diffKey = (Config.TicketDifficulty == "困难" or Config.TicketDifficulty == "Hard") and "Hard" or "Easy"
+        SubmitTicket(diffKey)
+    end)
+end
+
+        if Config.AutoClaimDaily and (now - lastCastTime >= 2.0) then
+            if Events and Events:FindFirstChild("DailyReward") then
+                for day = 1, 7 do Events.DailyReward:FireServer(day) end
+            end
+        end
+
+        if Config.AutoGacha and (now - lastGachaTime >= 1.5) then
+            if Events and Events:FindFirstChild("Gacha") then
+                Events.Gacha:FireServer(Config.GachaBanner, Config.GachaPullsPerAction)
+                lastGachaTime = now
+            end
+        end
+
+        if Config.AutoCraftBait and (now - lastCastTime >= 2.0) then
+            if Events and Events:FindFirstChild("CraftBait") then
+                Events.CraftBait:FireServer(Config.CraftBaitName, Config.CraftAmount)
+            end
+        end
+
+        if Config.AutoBuyBait and (now - lastBaitBuyTime >= Config.BuyBaitDelay) then
+            if Events and Events:FindFirstChild("BuyBait") then
+                Events.BuyBait:FireServer(Config.BuyBaitName, Config.BuyBaitAmount)
+                lastBaitBuyTime = now
+            end
+        end
+
+-- 自动把鱼给傻子（移鱼 → 手持 → 提交）
+-- ✅ 修复2：加 giveFishRunning 重入锁，避免上一轮没结束就再开新线程
+if Config.AutoGiveFishToDumbGuy
+   and not giveFishRunning
+   and (now - lastGiveFishTime >= Config.GiveFishInterval) then
+    lastGiveFishTime = now
+    giveFishRunning = true
+    task.spawn(function()
+        local ok, err = pcall(GiveFishOneRound)
+        if not ok then warn("[GiveFish] " .. tostring(err)) end
+        giveFishRunning = false
+    end)
+end
+
+        if Config.AutoFarmBoss and not IsHoldingRodOrFishing() and (now - lastBossFarmTime >= 2) then
+            lastBossFarmTime = now
+            task.spawn(function()
+pcall(function()
+    local char = LocalPlayer.Character
+    local pData = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild(LocalPlayer.UserId)
+    local alreadyHasRod = false
+
+    if char then
+        local tool = char:FindFirstChildOfClass("Tool")
+        if tool then
+            local n = tool.Name:lower()
+            if n:find("rod") or n:find("fishing") then
+                alreadyHasRod = true
+            end
+        end
+        for _, d in ipairs(char:GetChildren()) do
+            if d:IsA("BasePart") or d:IsA("Model") then
+                local n = d.Name:lower()
+                if n:find("rod") or n:find("fishing") then
+                    alreadyHasRod = true
+                    break
+                end
+            end
+        end
+    end
+
+    if not alreadyHasRod and pData then
+        local fr = pData:FindFirstChild("FishingRod")
+        if fr and fr.Value and fr.Value ~= "" then
+            alreadyHasRod = true
+        end
+    end
+
+    if not alreadyHasRod then
+        if Events and Events:FindFirstChild("ToggleHotbar") then
+            Events.ToggleHotbar:InvokeServer("1", nil)
+        end
+    end
+end)
+
+                task.wait(0.5) 
+
+                pcall(function()
+                    if Events and Events:FindFirstChild("StartBossFight") then
+                        local diff = BossDifficultyMap[Config.BossDifficulty] or "Normal"
+                        Events.StartBossFight:FireServer(Config.SelectedBoss or "Enzo", diff)
+                    end
+                end)
+            end)
+        end
+    end)
+end))
+
+do
+    local VIM; pcall(function() VIM = game:GetService("VirtualInputManager") end)
+    local VU;  pcall(function() VU  = game:GetService("VirtualUser") end)
+    local isMobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+
+    -- 阈值越小越严(越接近完美)；0.05=极严 / 0.15=中 / 0.30=松
+    local CENTER_TOLERANCE = 0.15
+
+    local function IsBossUIActive()
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        if not pg then return false end
+        local mg = pg:FindFirstChild("MainGui")
+        if not mg then return false end
+        local fishing = mg:FindFirstChild("Fishing")
+        if not fishing or not fishing.Visible then return false end
+        local bossBar = fishing:FindFirstChild("BossFightBar")
+        if not bossBar or not bossBar.Visible then return false end
+        if bossBar.AbsoluteSize.X <= 0 or bossBar.AbsoluteSize.Y <= 0 then return false end
+        return true
+    end
+
+    local function GetBossFightBar()
+        if not IsBossUIActive() then return nil end
+        return LocalPlayer.PlayerGui.MainGui.Fishing.BossFightBar
+    end
+
+    local function GetTwoParts()
+        local bossBar = GetBossFightBar()
+        if not bossBar then return nil, nil end
+        local hitbox = bossBar:FindFirstChild("Hitbox")
+        local bar    = bossBar:FindFirstChild("Bar")
+        if not hitbox or not bar then return nil, nil end
+        if not hitbox:IsA("GuiObject") or not bar:IsA("GuiObject") then return nil, nil end
+        if not hitbox.Visible or not bar.Visible then return nil, nil end
+        if hitbox.AbsoluteSize.X <= 0 or bar.AbsoluteSize.X <= 0 then return nil, nil end
+        return hitbox, bar
+    end
+
+    local function FireClick()
+        local vp = Camera.ViewportSize
+        local x = vp.X / 2
+        local y = vp.Y / 2
+
+        if isMobile then
+            if touchtap then
+                local ok = pcall(function() touchtap(Vector2.new(x, y)) end)
+                if ok then return true end
+            end
+            if VIM then
+                local ok = pcall(function()
+                    VIM:SendTouchEvent(x, y, true,  game, 1)
+                    task.wait(0.015)
+                    VIM:SendTouchEvent(x, y, false, game, 1)
+                end)
+                if ok then return true end
+            end
+        end
+
+        if VIM then
+            local ok = pcall(function()
+                VIM:SendMouseButtonEvent(x, y, 0, true,  game, 1)
+                task.wait(0.015)
+                VIM:SendMouseButtonEvent(x, y, 0, false, game, 1)
+            end)
+            if ok then return true end
+        end
+
+        if VU then
+            local ok = pcall(function()
+                VU:CaptureController()
+                VU:ClickButton1(Vector2.new(x, y))
+            end)
+            if ok then return true end
+        end
+        return false
+    end
+
+    local clickedThisRound = false
+local prevBcx = nil
+
+table.insert(activeConnections, RunService.RenderStepped:Connect(function()
+    if not isRunning or not Config.AutoEnzoMinigame then
+        clickedThisRound = false
+        prevBcx = nil
+        return
+    end
+
+    if not IsBossUIActive() then
+        clickedThisRound = false
+        prevBcx = nil
+        return
+    end
+
+    local a, b = GetTwoParts()
+    if not a or not b then
+        clickedThisRound = false
+        prevBcx = nil
+        return
+    end
+
+    local hcx = a.AbsolutePosition.X + a.AbsoluteSize.X / 2
+    local bcx = b.AbsolutePosition.X + b.AbsoluteSize.X / 2
+    local hw  = a.AbsoluteSize.X
+    local dx  = math.abs(bcx - hcx)
+
+    -- Bar 远离 Hitbox → 解锁，准备下一轮
+    if dx > hw * 0.8 then
+        clickedThisRound = false
+    end
+
+    if not clickedThisRound then
+        local halfWin = hw * CENTER_TOLERANCE
+
+        -- 条件1: 当前帧就在窗口内
+        local inWindow = dx <= halfWin
+
+        -- 条件2: 上一帧到这一帧的轨迹穿过了窗口
+        local crossed = false
+        if prevBcx then
+            local left  = math.min(prevBcx, bcx)
+            local right = math.max(prevBcx, bcx)
+            if left <= hcx + halfWin and right >= hcx - halfWin then
+                crossed = true
+            end
+        end
+
+        if inWindow or crossed then
+            clickedThisRound = true
+            FireClick()
+        end
+    end
+
+    prevBcx = bcx
+end))
+end
+-- ============================================================
+
+-- ============================================================
+-- 🎵 章鱼节奏小游戏机器人（A-S-D 三轨完美击中）
+-- ============================================================
+local rhythmState = {
+    lastLaneHit = {},
+    hitNotes = {},
+    lastClean = 0
+}
+
+local function CheckAndPlayRhythm(pg)
+    if not (Config.OctoAutoMinigame or Config.AnchorBar) then return end
+    if not pg then return end
+
+    local rhythmGui = nil
+    local mainGui = pg:FindFirstChild("MainGui")
+    if mainGui then
+        if mainGui:FindFirstChild("Fishing") then
+            rhythmGui = mainGui.Fishing:FindFirstChild("Rhythm")
+        end
+        if not rhythmGui then
+            rhythmGui = mainGui:FindFirstChild("Rhythm")
+        end
+    end
+    if not rhythmGui then
+        rhythmGui = pg:FindFirstChild("Rhythm", true)
+    end
+
+    if not rhythmGui or not rhythmGui.Visible then return end
+
+    local nowTick = tick()
+    if nowTick - rhythmState.lastClean > 4.0 then
+        rhythmState.hitNotes = {}
+        rhythmState.lastClean = nowTick
+    end
+
+    local lanes = {
+        { name = "ProgressionA", key = "A", keyCode = Enum.KeyCode.A },
+        { name = "ProgressionS", key = "S", keyCode = Enum.KeyCode.S },
+        { name = "ProgressionD", key = "D", keyCode = Enum.KeyCode.D }
+    }
+
+    for _, laneData in ipairs(lanes) do
+        local prog = rhythmGui:FindFirstChild(laneData.name)
+        if prog and prog.Visible then
+            local bFrame = prog:FindFirstChild("BarFrame")
+            local btn = prog:FindFirstChild("Button")
+            local targetScaleY = (bFrame and bFrame.Position.Y.Scale) or 0.85
+
+            for _, child in ipairs(prog:GetChildren()) do
+                if child.Name == "Note_FX" and child:IsA("GuiObject") and child.Visible then
+                    local noteScaleY = child.Position.Y.Scale
+                    local diff = math.abs(noteScaleY - targetScaleY)
+
+                    local triggerThreshold = 0.16
+                    if Config.RhythmHumanizer ~= false then
+                        triggerThreshold = math.random(8, 19) / 100
+                    end
+
+                    if diff <= triggerThreshold and not rhythmState.hitNotes[child] then
+                        rhythmState.hitNotes[child] = true
+
+                        local accuracy = Config.RhythmAccuracy or 95
+                        local willHit = (math.random(1, 100) <= accuracy)
+
+                        if willHit then
+                            local delaySec = (Config.RhythmHumanizer ~= false) and (math.random(10, 35) / 1000) or 0
+                            task.delay(delaySec, function()
+                                if btn and btn:IsA("GuiButton") then
+                                    pcall(function()
+                                        if firesignal then
+                                            if btn.MouseButton1Click then firesignal(btn.MouseButton1Click) end
+                                            if btn.Activated then firesignal(btn.Activated) end
+                                        end
+                                        if getconnections then
+                                            for _, c in ipairs(getconnections(btn.MouseButton1Click)) do
+                                                if c.Fire then c:Fire() elseif c.Function then c.Function() end
+                                            end
+                                        end
+                                    end)
+                                end
+
+                                if VirtualInputManager and laneData.keyCode then
+                                    pcall(function()
+                                        VirtualInputManager:SendKeyEvent(true, laneData.keyCode, false, game)
+                                        task.delay(0.02, function()
+                                            pcall(function() VirtualInputManager:SendKeyEvent(false, laneData.keyCode, false, game) end)
+                                        end)
+                                    end)
+                                end
+
+                                if Events and Events:FindFirstChild("RhythmHit") then
+                                    pcall(function() Events.RhythmHit:FireServer("hit") end)
+                                end
+                            end)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+table.insert(activeConnections, RunService.RenderStepped:Connect(function()
+    if not isRunning then return end
+    pcall(function()
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        if pg then
+            CheckAndPlayRhythm(pg)
+        end
+    end)
+end))
+
+local flyBV, flyBG = nil, nil
+table.insert(activeConnections, RunService.RenderStepped:Connect(function()
+    if not isRunning then return end
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    if Config.FlyEnabled then
+        if not flyBV then
+            flyBV = Instance.new("BodyVelocity")
+            flyBV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+            flyBV.Parent = root
+            table.insert(cleanUpInstances, flyBV)
+
+            flyBG = Instance.new("BodyGyro")
+            flyBG.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+            flyBG.Parent = root
+            table.insert(cleanUpInstances, flyBG)
+        end
+
+        local camCF = Camera.CFrame
+        local dir = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + camCF.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - camCF.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir = dir + camCF.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir = dir - camCF.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0, 1, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then dir = dir - Vector3.new(0, 1, 0) end
+
+        flyBG.CFrame = camCF
+        flyBV.Velocity = dir.Unit * Config.FlySpeed
+        if dir.Magnitude == 0 then flyBV.Velocity = Vector3.zero end
+    else
+        if flyBV then flyBV:Destroy(); flyBV = nil end
+        if flyBG then flyBG:Destroy(); flyBG = nil end
+    end
+end))
+
+table.insert(activeConnections, RunService.RenderStepped:Connect(function()
+    if not isRunning then return end
+    pcall(function()
+        if Config.AnchorBar then
+            local pg = LocalPlayer:FindFirstChild("PlayerGui")
+            if pg and pg:FindFirstChild("MainGui") and pg.MainGui:FindFirstChild("Fishing") and pg.MainGui.Fishing.Visible then
+                local fUI = pg.MainGui.Fishing
+                local barFrame = fUI:FindFirstChild("BarFrame")
+                if barFrame and barFrame:FindFirstChild("Bar") then
+                    barFrame.Bar.Position = UDim2.new(0.5, 0, 0.5, 0)
+                end
+                
+                -- 注意：不要修改 Bar 的位置，让它和 Hitbox 保持独立，
+-- 否则永远重叠会破坏"自动恩佐小游戏"的判定。
+                
+                local hpPlayer = fUI:FindFirstChild("HPPlayer")
+                if hpPlayer and hpPlayer:FindFirstChild("ProgressionBar") then
+                    local pBar = hpPlayer.ProgressionBar
+                    if pBar:FindFirstChild("Bar") then
+                        pBar.Bar.Size = UDim2.new(1, 0, 1, 0)
+                    end
+                end
+                if fUI:FindFirstChild("PerfectButton") and fUI.PerfectButton.Visible then
+                    if Events and Events:FindFirstChild("Slam") then Events.Slam:FireServer("Perfect") end
+                end
+                if fUI:FindFirstChild("Charge") and fUI.Charge.Visible then
+                    if Events and Events:FindFirstChild("Charge") then Events.Charge:FireServer(100) end
+                end
+                local cutscene = pg:FindFirstChild("MainGui") and pg.MainGui:FindFirstChild("Cutscene")
+                if cutscene and cutscene:FindFirstChild("Hurt") then
+                    cutscene.Hurt.ImageTransparency = 1
+                end
+                local impactCutscene = pg:FindFirstChild("Impact") and pg.Impact:FindFirstChild("Cutscene")
+                if impactCutscene and impactCutscene:FindFirstChild("Hurt") then
+                    impactCutscene.Hurt.ImageTransparency = 1
+                end
+            end
+        end
+    end)
+end))
+
+if Events and Events:FindFirstChild("Slam") then
+    table.insert(activeConnections, Events.Slam.OnClientEvent:Connect(function(slamEvent)
+        if isRunning and Config.AnchorBar and typeof(slamEvent) == "Instance" then
+            pcall(function() slamEvent:FireServer("Perfect") end)
+        end
+    end))
+end
+
+if Events and Events:FindFirstChild("Charge") then
+    table.insert(activeConnections, Events.Charge.OnClientEvent:Connect(function(chargeEvent)
+        if isRunning and Config.AnchorBar and typeof(chargeEvent) == "Instance" then
+            pcall(function() chargeEvent:FireServer(100) end)
+        end
+    end))
+end
+
+table.insert(activeConnections, UserInputService.JumpRequest:Connect(function()
+    if Config.InfiniteJump and isRunning then
+        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+    end
+end))
+
+-- ============================================================
+-- 防挂机（改用普通版策略：不再 hook __namecall）
+--  记录最后一次真实输入；空闲 ≥900s 就在 1s 巡检里模拟一次右键 + 空格
+--  状态挂在全局表 AFKGuard 上：主 chunk 的 local 已接近 Luau 上限，不新增顶层 local
+-- ============================================================
+do
+    AFKGuard = {
+        last = tick(),
+        -- 模拟一次空格（优先 keypress/keyrelease，其次 VirtualInputManager，最后 Humanoid:ChangeState）
+        SimulateSpaceKey = function()
+            if keypress and keyrelease then
+                pcall(function()
+                    keypress(Enum.KeyCode.Space)
+                    task.wait(0.05)
+                    keyrelease(Enum.KeyCode.Space)
+                end)
+                return
+            end
+            if VirtualInputManager then
+                pcall(function()
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+                    task.wait(0.05)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+                end)
+                return
+            end
+            pcall(function()
+                local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+            end)
+        end,
+        -- 模拟一次右键（优先 VirtualUser，其次 Humanoid:ChangeState）
+        SimulateRightClick = function()
+            if VirtualUser then
+                pcall(function()
+                    VirtualUser:CaptureController()
+                    VirtualUser:ClickButton2(Vector2.new(0, 0))
+                end)
+                return
+            end
+            pcall(function()
+                local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+            end)
+        end,
+    }
+
+    table.insert(activeConnections, UserInputService.InputBegan:Connect(function(_, gpe)
+        if not gpe then AFKGuard.last = tick() end
+    end))
+    table.insert(activeConnections, UserInputService.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch
+            or input.UserInputType == Enum.UserInputType.Gamepad1 then
+            AFKGuard.last = tick()
+        end
+    end))
+end
+
+-- ============================================================
+-- HP 进度条卡死检测
+-- 监控路径: PlayerGui.MainGui.Fishing.ProgressionBar.HP
+-- 若 ContentText 在 60 秒内未发生变化，执行 ToggleHotbar("1", nil) 两次
+-- ============================================================
+local lastHPText        = nil
+local lastHPChangeTime  = tick()
+local hpStuckFired      = false
+
+table.insert(activeConnections, task.spawn(function()
+    while isRunning do
+        task.wait(1)
+        if not isRunning then break end
+
+        -- ① 防挂机：空闲 ≥900s 模拟一次右键 + 空格（与普通版一致）
+        if Config.AntiAFK and AFKGuard and (tick() - AFKGuard.last >= 900) then
+            AFKGuard.SimulateRightClick()
+            task.wait(0.2)
+            AFKGuard.SimulateSpaceKey()
+            AFKGuard.last = tick()
+        end
+
+        -- HP 进度条卡死检测
+        if Config.AntiAFK then
+            pcall(function()
+                local pg = LocalPlayer:FindFirstChild("PlayerGui")
+                local mainGui  = pg and pg:FindFirstChild("MainGui")
+                local fishing  = mainGui and mainGui:FindFirstChild("Fishing")
+                local progBar  = fishing and fishing:FindFirstChild("ProgressionBar")
+                local hp       = progBar and progBar:FindFirstChild("HP")
+
+                if hp then
+                    -- 优先取 ContentText（富文本也能拿到真实文本），回退到 Text
+                    local text = hp.ContentText
+                    if text == nil or text == "" then text = hp.Text end
+
+                    if lastHPText == nil then
+                        -- 首次记录
+                        lastHPText       = text
+                        lastHPChangeTime = tick()
+                    elseif text ~= lastHPText then
+                        -- 数字变化了 → 刷新计时
+                        lastHPText       = text
+                        lastHPChangeTime = tick()
+                        hpStuckFired     = false
+                    elseif (tick() - lastHPChangeTime >= 60) and not hpStuckFired then
+                        -- 60 秒没变 → 触发解锁
+                        hpStuckFired = true
+                        local toggleEv = Events and Events:FindFirstChild("ToggleHotbar")
+                        if toggleEv then
+                            -- 第一次
+                            pcall(function() toggleEv:InvokeServer("1", nil) end)
+                            task.wait(0.15)
+                            -- 第二次
+                            pcall(function() toggleEv:InvokeServer("1", nil) end)
+                            ShowNotification("反挂机", "HP 进度条 1 分钟未变化，已触发热键切换", "WARN", 3)
+                        end
+                    end
+                else
+                    -- HP 元素不存在（没在钓鱼/未打开界面）→ 重置状态，等待下次出现
+                    lastHPText   = nil
+                    hpStuckFired = false
+                end
+            end)
+        end
+    end
+end))
+
+-- ============================================================
+-- ESP 系统（移植自重型翻译版 v2.9.1）
+-- ============================================================
+local espFolder = Instance.new("Folder")
+espFolder.Name = "IdenticalESP"
+espFolder.Parent = Workspace
+table.insert(cleanUpInstances, espFolder)
+
+local activeESP = {}
+
+-- 鱼圈锚点与装饰
+local fishRingAnchor = Instance.new("Part")
+fishRingAnchor.Name = "FishRingAnchor"
+fishRingAnchor.Size = Vector3.new(0.5, 0.5, 0.5)
+fishRingAnchor.Transparency = 1
+fishRingAnchor.CanCollide = false
+fishRingAnchor.Anchored = true
+fishRingAnchor.Parent = Workspace
+table.insert(cleanUpInstances, fishRingAnchor)
+
+local fishRingAdornment = Instance.new("CylinderHandleAdornment")
+fishRingAdornment.Name = "FishRingAdornment"
+fishRingAdornment.Adornee = fishRingAnchor
+fishRingAdornment.AlwaysOnTop = true
+fishRingAdornment.ZIndex = 5
+fishRingAdornment.Radius = 6
+fishRingAdornment.InnerRadius = 5.2
+fishRingAdornment.Height = 0.2
+fishRingAdornment.Color3 = Color3.fromRGB(255, 45, 45)
+fishRingAdornment.Transparency = 0.2
+fishRingAdornment.CFrame = CFrame.Angles(math.rad(90), 0, 0)
+fishRingAdornment.Visible = false
+fishRingAdornment.Parent = fishRingAnchor
+
+local fishRingBillboard = Instance.new("BillboardGui")
+fishRingBillboard.Name = "FishRingBillboard"
+fishRingBillboard.Size = UDim2.new(0, 280, 0, 32)
+fishRingBillboard.StudsOffset = Vector3.new(0, 2.5, 0)
+fishRingBillboard.AlwaysOnTop = true
+fishRingBillboard.Adornee = fishRingAnchor
+fishRingBillboard.Parent = fishRingAnchor
+
+local fishRingText = Instance.new("TextLabel", fishRingBillboard)
+fishRingText.Size = UDim2.new(1, 0, 1, 0)
+fishRingText.BackgroundTransparency = 1
+fishRingText.TextColor3 = Color3.fromRGB(255, 230, 90)
+fishRingText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+fishRingText.TextStrokeTransparency = 0.2
+fishRingText.Font = Enum.Font.GothamBold
+fishRingText.TextSize = 13
+fishRingText.Text = ""
+fishRingText.Visible = false
+
+-- 最近岛屿名称（简化版，没有 BOSS 数据库时回退）
+function GetNearestIslandName(pos)
+    if not pos then return "大洋" end
+    local nearestDist = math.huge
+    local nearestName = "大洋"
+
+    local spFolder = Workspace:FindFirstChild("Spawnpoint")
+    if spFolder then
+        for _, sp in ipairs(spFolder:GetChildren()) do
+            if sp:IsA("BasePart") then
+                local d = (pos - sp.Position).Magnitude
+                if d < nearestDist then
+                    nearestDist = d
+                    nearestName = sp.Name
+                end
+            end
+        end
+    end
+
+    -- 简单的岛屿坐标回退表
+    local islandsFallback = {
+        {name = "起始岛", pos = Vector3.new(-200.7, 11.1, 35.9)},
+        {name = "竹岛", pos = Vector3.new(-1223.0, 7.3, -24.1)},
+        {name = "辐射岛", pos = Vector3.new(65.5, 8.8, 1181.3)},
+        {name = "统治岛", pos = Vector3.new(-1276.4, 8.8, 1239.7)},
+        {name = "鲤鱼岛", pos = Vector3.new(-62.0, 11.9, -1321.4)},
+        {name = "冰岛", pos = Vector3.new(-1366.0, 11.9, -1495.4)},
+        {name = "椰子岛", pos = Vector3.new(1493.6, 9.1, -1430.6)},
+        {name = "琥珀岛", pos = Vector3.new(1259.4, 9.1, 1401.5)},
+        {name = "战场岛", pos = Vector3.new(1393.5, 11.3, 169.6)},
+        {name = "雾顶峰", pos = Vector3.new(2660.2, 8.8, -86.7)},
+    }
+    if nearestDist > 1200 then
+        for _, entry in ipairs(islandsFallback) do
+            local d = (pos - entry.pos).Magnitude
+            if d < nearestDist then
+                nearestDist = d
+                nearestName = entry.name
+            end
+        end
+    end
+    return nearestName
+end
+
+local function ResolveBestPart(instance)
+    if not instance then return nil end
+    if instance:IsA("BasePart") then return instance end
+    if instance:IsA("Model") then
+        return instance.PrimaryPart
+            or instance:FindFirstChild("HumanoidRootPart")
+            or instance:FindFirstChild("Torso")
+            or instance:FindFirstChild("UpperTorso")
+            or instance:FindFirstChild("Stick")
+            or instance:FindFirstChild("Handle")
+            or instance:FindFirstChild("Part")
+            or instance:FindFirstChildWhichIsA("BasePart", true)
+    end
+    return instance:FindFirstChildWhichIsA("BasePart", true)
+end
+
+local function AddESP(instance, name, espCategory, color, icon, explicitPart, customData)
+    if not instance or activeESP[instance] then return end
+    local isEnabled = Config["ESP_" .. espCategory]
+    if not isEnabled then return end
+
+    local part = explicitPart or ResolveBestPart(instance)
+    if not part then return end
+
+    local bb = Instance.new("BillboardGui")
+    bb.Name = "ESP_" .. name
+    bb.Size = UDim2.new(0, 195, 0, 36)
+    bb.StudsOffset = Vector3.new(0, 2.8, 0)
+    bb.AlwaysOnTop = true
+    bb.Adornee = part
+    bb.Enabled = true
+    bb.Parent = espFolder
+
+    local f = Instance.new("Frame", bb)
+    f.Size = UDim2.new(1, 0, 1, 0)
+    f.BackgroundColor3 = Color3.fromRGB(15, 15, 24)
+    f.BackgroundTransparency = 0.15
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 5)
+
+    local s = Instance.new("UIStroke", f)
+    s.Color = color or Colors.PurpleAccent
+    s.Thickness = 1.2
+
+    local titleLbl = Instance.new("TextLabel", f)
+    titleLbl.Size = UDim2.new(1, -8, 0, 17)
+    titleLbl.Position = UDim2.new(0, 4, 0, 2)
+    titleLbl.BackgroundTransparency = 1
+    titleLbl.Font = Enum.Font.GothamBold
+    titleLbl.Text = (icon or "") .. " " .. name
+    titleLbl.TextColor3 = color or Colors.TextWhite
+    titleLbl.TextSize = 10
+    titleLbl.TextTruncate = Enum.TextTruncate.AtEnd
+
+    local subLbl = Instance.new("TextLabel", f)
+    subLbl.Size = UDim2.new(1, -8, 0, 14)
+    subLbl.Position = UDim2.new(0, 4, 0, 18)
+    subLbl.BackgroundTransparency = 1
+    subLbl.Font = Enum.Font.Gotham
+    subLbl.Text = "正在加载数据..."
+    subLbl.TextColor3 = Color3.fromRGB(195, 205, 220)
+    subLbl.TextSize = 8.5
+    subLbl.TextTruncate = Enum.TextTruncate.AtEnd
+
+    activeESP[instance] = {
+        gui = bb,
+        frame = f,
+        stroke = s,
+        titleLbl = titleLbl,
+        subLbl = subLbl,
+        part = part,
+        instance = instance,
+        espCategory = espCategory,
+        name = name,
+        icon = icon or "",
+        customData = customData
+    }
+end
+
+local function RemoveESP(instance)
+    local data = activeESP[instance]
+    if data then
+        if data.gui and data.gui.Parent then data.gui:Destroy() end
+        activeESP[instance] = nil
+    end
+end
+
+-- ESP 对象探测循环（仅当至少开启 1 个 ESP 选项时扫描）
+task.spawn(function()
+    -- ============================================================
+    -- 道士 / 茅山 NPC 检测（移植自原代码 secretBossState 模块）
+    -- 三轮扫描：NPC 文件夹内 Model 名称 → ProximityPrompt / TextLabel → Workspace 顶层 Model
+    -- 命中结果缓存 3 秒，供 ESP 逐帧复用
+    -- ============================================================
+    local NPCScan = (function()
+        local state = {
+            cachedTaoist = nil,
+            lastTaoistScan = 0,
+            cachedMaoshan = nil,
+            lastMaoshanScan = 0,
+        }
+
+        local function getCandidateNPCFolders()
+            local candidateFolders = {}
+            for _, fName in ipairs({"NPC", "NPCs", "Merchant", "Merchants", "Entities", "Characters"}) do
+                local f = Workspace:FindFirstChild(fName)
+                if f then
+                    table.insert(candidateFolders, f)
+                    for _, subName in ipairs({"Function", "Merchant", "Merchants", "Taoist", "SellFish", "SetSpawn", "BuyBait", "BuyFishingRod"}) do
+                        local sf = f:FindFirstChild(subName)
+                        if sf then table.insert(candidateFolders, sf) end
+                    end
+                end
+            end
+            return candidateFolders
+        end
+
+        local function isTaoistText(str)
+            if not str or typeof(str) ~= "string" or str == "" then return false end
+            local s = str:lower()
+            -- 绝对排除 Blind Grand Angler, Grand Angler 或 Maoshan
+            if s:find("angler") or s:find("blind") or s:find("maoshan") or s:find("mao shan") then
+                return false
+            end
+            return (s:find("taoist") or s:find("đạo sĩ") or s:find("dao si") or s:find("daoshi")) ~= nil
+        end
+
+        local function isMaoshanText(str)
+            if not str or typeof(str) ~= "string" or str == "" then return false end
+            local s = str:lower()
+            if s:find("angler") or s:find("blind") then
+                return false
+            end
+            return (s:find("maoshan") or s:find("mao shan") or s:find("mao_shan")) ~= nil
+        end
+
+        local function isNPCModel(inst)
+            if not inst or not inst:IsA("Model") then return false end
+            return inst:FindFirstChildOfClass("Humanoid") ~= nil
+                or inst:FindFirstChild("HumanoidRootPart") ~= nil
+                or inst:FindFirstChild("Head") ~= nil
+        end
+
+        local function ScanForTaoistNPC()
+            local candidateFolders = getCandidateNPCFolders()
+
+            -- 第 1 轮：直接扫描文件夹中的 NPC Model
+            for _, folder in ipairs(candidateFolders) do
+                for _, n in ipairs(folder:GetChildren()) do
+                    if isNPCModel(n) and isTaoistText(n.Name) then
+                        return n, "道士（Taoist）", "Taoist", Colors.AccentOrange, "📜"
+                    end
+                end
+            end
+
+            -- 第 2 轮：扫描 NPC 目录中的 ProximityPrompt 和 TextLabel
+            for _, folder in ipairs(candidateFolders) do
+                for _, d in ipairs(folder:GetDescendants()) do
+                    if d:IsA("ProximityPrompt") then
+                        local act = tostring(d.ActionText or "")
+                        local obj = tostring(d.ObjectText or "")
+                        local pName = d.Parent and d.Parent.Name or ""
+                        if isTaoistText(act) or isTaoistText(obj) or isTaoistText(pName) then
+                            local model = d:FindFirstAncestorOfClass("Model") or d.Parent
+                            if model and not (model.Name:lower():find("angler") or model.Name:lower():find("blind")) then
+                                return model, "道士（Taoist）", "Taoist", Colors.AccentOrange, "📜"
+                            end
+                        end
+                    elseif d:IsA("TextLabel") and d.Visible and d.Text and #d.Text > 0 then
+                        if isTaoistText(d.Text) then
+                            local model = d:FindFirstAncestorOfClass("Model") or d.Parent
+                            if model and not (model.Name:lower():find("angler") or model.Name:lower():find("blind")) then
+                                return model, "道士（Taoist）", "Taoist", Colors.AccentOrange, "📜"
+                            end
+                        end
+                    end
+                end
+            end
+
+            -- 第 3 轮：直接扫描 Workspace 顶层 Model
+            for _, n in ipairs(Workspace:GetChildren()) do
+                if isNPCModel(n) and isTaoistText(n.Name) then
+                    return n, "道士（Taoist）", "Taoist", Colors.AccentOrange, "📜"
+                end
+            end
+
+            return nil
+        end
+
+        local function ScanForMaoshanNPC()
+            local candidateFolders = getCandidateNPCFolders()
+
+            -- 第 1 轮：直接扫描文件夹中的 NPC Model
+            for _, folder in ipairs(candidateFolders) do
+                for _, n in ipairs(folder:GetChildren()) do
+                    if isNPCModel(n) and isMaoshanText(n.Name) then
+                        return n, "茅山道士", "Maoshan", Colors.PurplePrimary, "✨"
+                    end
+                end
+            end
+
+            -- 第 2 轮：扫描 NPC 目录中的 ProximityPrompt 和 TextLabel
+            for _, folder in ipairs(candidateFolders) do
+                for _, d in ipairs(folder:GetDescendants()) do
+                    if d:IsA("ProximityPrompt") then
+                        local act = tostring(d.ActionText or "")
+                        local obj = tostring(d.ObjectText or "")
+                        local pName = d.Parent and d.Parent.Name or ""
+                        if isMaoshanText(act) or isMaoshanText(obj) or isMaoshanText(pName) then
+                            local model = d:FindFirstAncestorOfClass("Model") or d.Parent
+                            if model and not (model.Name:lower():find("angler") or model.Name:lower():find("blind")) then
+                                return model, "茅山道士", "Maoshan", Colors.PurplePrimary, "✨"
+                            end
+                        end
+                    elseif d:IsA("TextLabel") and d.Visible and d.Text and #d.Text > 0 then
+                        if isMaoshanText(d.Text) then
+                            local model = d:FindFirstAncestorOfClass("Model") or d.Parent
+                            if model and not (model.Name:lower():find("angler") or model.Name:lower():find("blind")) then
+                                return model, "茅山道士", "Maoshan", Colors.PurplePrimary, "✨"
+                            end
+                        end
+                    end
+                end
+            end
+
+            -- 第 3 轮：直接扫描 Workspace 顶层 Model
+            for _, n in ipairs(Workspace:GetChildren()) do
+                if isNPCModel(n) and isMaoshanText(n.Name) then
+                    return n, "茅山道士", "Maoshan", Colors.PurplePrimary, "✨"
+                end
+            end
+
+            return nil
+        end
+
+        local function GetTaoist()
+            if state.cachedTaoist and state.cachedTaoist.inst and state.cachedTaoist.inst.Parent then
+                return state.cachedTaoist.inst, state.cachedTaoist.displayName, "Taoist", Colors.AccentOrange, "📜"
+            end
+            local now = tick()
+            if (now - (state.lastTaoistScan or 0)) >= 3.0 then
+                state.lastTaoistScan = now
+                local inst, displayName, category, col, icon = ScanForTaoistNPC()
+                if inst then
+                    state.cachedTaoist = {
+                        inst = inst,
+                        displayName = displayName or "道士（Taoist）"
+                    }
+                    return inst, displayName or "道士（Taoist）", "Taoist", col or Colors.AccentOrange, icon or "📜"
+                else
+                    state.cachedTaoist = nil
+                end
+            end
+            if state.cachedTaoist and state.cachedTaoist.inst and state.cachedTaoist.inst.Parent then
+                return state.cachedTaoist.inst, state.cachedTaoist.displayName, "Taoist", Colors.AccentOrange, "📜"
+            end
+            return nil
+        end
+
+        local function GetMaoshan()
+            if state.cachedMaoshan and state.cachedMaoshan.inst and state.cachedMaoshan.inst.Parent then
+                return state.cachedMaoshan.inst, state.cachedMaoshan.displayName, "Maoshan", Colors.PurplePrimary, "✨"
+            end
+            local now = tick()
+            if (now - (state.lastMaoshanScan or 0)) >= 3.0 then
+                state.lastMaoshanScan = now
+                local inst, displayName, category, col, icon = ScanForMaoshanNPC()
+                if inst then
+                    state.cachedMaoshan = {
+                        inst = inst,
+                        displayName = displayName or "茅山道士"
+                    }
+                    return inst, displayName or "茅山道士", "Maoshan", col or Colors.PurplePrimary, icon or "✨"
+                else
+                    state.cachedMaoshan = nil
+                end
+            end
+            if state.cachedMaoshan and state.cachedMaoshan.inst and state.cachedMaoshan.inst.Parent then
+                return state.cachedMaoshan.inst, state.cachedMaoshan.displayName, "Maoshan", Colors.PurplePrimary, "✨"
+            end
+            return nil
+        end
+
+        return {
+            GetTaoist = GetTaoist,
+            GetMaoshan = GetMaoshan,
+            ScanForTaoistNPC = ScanForTaoistNPC,
+            ScanForMaoshanNPC = ScanForMaoshanNPC,
+        }
+    end)()
+
+    -- 暴露给跳服循环（全局，避免新增顶层 local）
+    IdenticalNPCScan = NPCScan
+
+    while isRunning do
+        task.wait(1.2)
+        local anyESP = Config.ESP_Players or Config.ESP_SecretRod or Config.ESP_GodSpirit or Config.ESP_Boats or Config.ESP_Boss or Config.ESP_Taoist or Config.ESP_Maoshan
+        if anyESP then
+            pcall(function()
+                if Config.ESP_Players then
+                    for _, p in ipairs(Players:GetPlayers()) do
+                        if p ~= LocalPlayer and p.Character then
+                            local hrp = p.Character:FindFirstChild("HumanoidRootPart") or p.Character:FindFirstChild("Head")
+                            if hrp then
+                                AddESP(p.Character, p.DisplayName, "Players", Colors.PurpleAccent, "👤", hrp, {player = p})
+                            end
+                        end
+                    end
+                end
+
+                if Config.ESP_SecretRod and Workspace:FindFirstChild("SecretRod") then
+                    for _, r in ipairs(Workspace.SecretRod:GetChildren()) do
+                        AddESP(r, r.Name, "SecretRod", Colors.AccentYellow, "🌟")
+                    end
+                end
+
+                if Config.ESP_GodSpirit and Workspace:FindFirstChild("NPC") then
+                    local sp = Workspace.NPC:FindFirstChild("Spirit") or Workspace.NPC:FindFirstChild("God")
+                    if sp then
+                        AddESP(sp, "God Spirit", "GodSpirit", Colors.AccentGreen, "⛩️")
+                    end
+                end
+
+                if Config.ESP_Boats and Workspace:FindFirstChild("Boat") then
+                    for _, b in ipairs(Workspace.Boat:GetChildren()) do
+                        AddESP(b, b.Name, "Boats", Colors.AccentBlue, "⛵")
+                    end
+                end
+
+                if Config.ESP_Boss and Workspace:FindFirstChild("BossSetUp") then
+                    for _, b in ipairs(Workspace.BossSetUp:GetChildren()) do
+                        AddESP(b, b.Name, "Boss", Colors.AccentRed, "👹")
+                    end
+                end
+
+                if Config.ESP_Taoist then
+                    local tInst, tName, _, tCol, tIcon = NPCScan.GetTaoist()
+                    if tInst then
+                        AddESP(tInst, tName or "道士（Taoist）", "Taoist", tCol or Colors.AccentOrange, tIcon or "📜")
+                    end
+                end
+
+                if Config.ESP_Maoshan then
+                    local mInst, mName, _, mCol, mIcon = NPCScan.GetMaoshan()
+                    if mInst then
+                        AddESP(mInst, mName or "茅山道士", "Maoshan", mCol or Colors.PurplePrimary, mIcon or "✨")
+                    end
+                end
+            end)
+        else
+            if next(activeESP) then
+                for inst in pairs(activeESP) do
+                    RemoveESP(inst)
+                end
+            end
+        end
+    end
+end)
+
+-- 主渲染循环：更新所有 ESP 与鱼圈（10Hz 节流，避免每帧扫描造成手机内存/CPU 压力）
+local lastRingUpdate = 0
+table.insert(activeConnections, RunService.RenderStepped:Connect(function()
+    if not isRunning then return end
+    local ringNow = tick()
+    if ringNow - lastRingUpdate < 0.1 then return end
+    lastRingUpdate = ringNow
+
+    -- 不在钓鱼流程、也没开滤镜/ESP 时直接跳过本帧：低端机上避免无意义的每帧扫描
+    local fChar = LocalPlayer.Character
+    local fFishing = fChar and (fChar:GetAttribute("Fishing") == true or fChar:GetAttribute("Minigame") == true)
+    local fFishId = LocalPlayer:GetAttribute("FishID")
+    local fNeedRing = Config.FishRedRing and (fFishing or (fFishId ~= nil and fFishId ~= ""))
+    if not (Config.Fullbright or Config.NoFog or next(activeESP) or fNeedRing) then
+        if fishRingAdornment.Visible then fishRingAdornment.Visible = false end
+        if fishRingText.Visible then fishRingText.Visible = false end
+        return
+    end
+
+    -- 全亮 / 去雾处理
+    if Config.Fullbright then
+        Lighting.Brightness = 2.5
+        Lighting.ClockTime = 14
+        Lighting.FogEnd = 1000000
+        Lighting.GlobalShadows = false
+        Lighting.Ambient = Color3.fromRGB(180, 180, 180)
+        Lighting.OutdoorAmbient = Color3.fromRGB(180, 180, 180)
+    end
+    if Config.NoFog then
+        Lighting.FogEnd = 1000000
+        Lighting.FogStart = 1000000
+        local atmo = Lighting:FindFirstChildWhichIsA("Atmosphere")
+        if atmo and (atmo.Density > 0 or atmo.Haze > 0) then
+            atmo.Density = 0
+            atmo.Haze = 0
+            atmo.Glare = 0
+        end
+        for _, d in ipairs(Camera:GetDescendants()) do
+            if d:IsA("ParticleEmitter") and d.Enabled then
+                d.Enabled = false
+            end
+        end
+    end
+
+    -- 遍历所有活跃 ESP 更新数据
+    if next(activeESP) then
+        local camPos = Camera.CFrame.Position
+        for inst, data in pairs(activeESP) do
+            local isEnabled = Config["ESP_" .. data.espCategory]
+            if not inst.Parent or not data.part or not data.part.Parent or not isEnabled then
+                RemoveESP(inst)
+            else
+                data.gui.Enabled = true
+                local dist = math.floor((camPos - data.part.Position).Magnitude)
+                local cat = data.espCategory
+
+                if cat == "Players" then
+                    local p = data.customData and data.customData.player
+                    if not p or not p.Parent or not p.Character or p.Character ~= inst then
+                        RemoveESP(inst)
+                    else
+                        local hum = inst:FindFirstChildOfClass("Humanoid")
+                        local curHp = hum and math.floor(hum.Health) or 0
+                        local maxHp = hum and math.floor(hum.MaxHealth) or 100
+                        local isFishing = inst:GetAttribute("Fishing") == true
+                        local isMinigame = inst:GetAttribute("Minigame") == true
+                        local isSwimming = inst:GetAttribute("Swimming") == true
+
+                        local rodVal = "空手"
+                        local pFolder = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild(tostring(p.UserId))
+                        if pFolder and pFolder:FindFirstChild("FishingRod") and pFolder.FishingRod.Value ~= "" then
+                            rodVal = pFolder.FishingRod.Value
+                        end
+
+                        local act = "💤 空闲"
+                        if curHp <= 0 then act = "💀 已死亡"
+                        elseif isMinigame then act = "⚡ 拉鱼中"
+                        elseif isFishing then act = "🎣 抛竿中"
+                        elseif isSwimming then act = "🏊 游泳中"
+                        end
+
+                        data.titleLbl.Text = string.format("👤 %s  •  %dm", p.DisplayName, dist)
+                        data.subLbl.Text = string.format("❤️ %d/%d HP | 🎣 %s | %s", curHp, maxHp, rodVal, act)
+
+                        if isMinigame then
+                            data.stroke.Color = Color3.fromRGB(255, 170, 40)
+                        elseif isFishing then
+                            data.stroke.Color = Color3.fromRGB(60, 220, 255)
+                        else
+                            data.stroke.Color = Colors.PurpleAccent
+                        end
+                    end
+                elseif cat == "Boss" then
+                    data.titleLbl.Text = string.format("👹 %s [BOSS]  •  %dm", data.name, dist)
+                    data.subLbl.Text = "⚔️ 召唤 & 战斗区域"
+                    data.stroke.Color = Color3.fromRGB(255, 50, 50)
+                elseif cat == "SecretRod" then
+                    local isl = GetNearestIslandName(data.part.Position)
+                    data.titleLbl.Text = string.format("🌟 %s  •  %dm", data.name, dist)
+                    data.subLbl.Text = string.format("📍 岛屿：%s | ⭐ 秘密鱼竿", isl)
+                    data.stroke.Color = Colors.AccentYellow
+                elseif cat == "GodSpirit" then
+                    local isl = GetNearestIslandName(data.part.Position)
+                    data.titleLbl.Text = string.format("⛩️ 神灵（God Spirit）  •  %dm", dist)
+                    data.subLbl.Text = string.format("📍 岛屿：%s | 🙏 祈祷", isl)
+                    data.stroke.Color = Colors.AccentGreen
+                elseif cat == "Taoist" or cat == "Maoshan" then
+                    local isl = GetNearestIslandName(data.part.Position)
+                    local isMao = cat == "Maoshan"
+                    data.titleLbl.Text = string.format("%s %s  •  %dm", isMao and "✨" or "📜", data.name, dist)
+                    data.subLbl.Text = string.format("📍 岛屿：%s | 📜 道士秘籍", isl)
+                elseif cat == "Boats" then
+                    local b = data.instance
+                    local driverName = "空"
+                    if b and b:IsA("Model") then
+                        local seat = b:FindFirstChildWhichIsA("VehicleSeat", true)
+                        if seat and seat.Occupant and seat.Occupant.Parent then
+                            local p = Players:GetPlayerFromCharacter(seat.Occupant.Parent)
+                            if p then driverName = p.DisplayName else driverName = seat.Occupant.Parent.Name end
+                        end
+                    end
+                    data.titleLbl.Text = string.format("⛵ %s  •  %dm", data.name, dist)
+                    data.subLbl.Text = string.format("👤 驾驶员：%s", driverName)
+                    data.stroke.Color = Colors.AccentBlue
+                else
+                    data.titleLbl.Text = string.format("%s %s  •  %dm", data.icon, data.name, dist)
+                    data.subLbl.Text = ""
+                end
+            end
+        end
+    end
+
+    -- 鱼类定位红圈 + 重量 & 突变显示
+    if Config.FishRedRing then
+        local fishPos = nil
+        local char = LocalPlayer.Character
+        local hrp = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+        local hrpPos = hrp and hrp.Position or Camera.CFrame.Position
+        local fishID = LocalPlayer:GetAttribute("FishID")
+        local uid = tostring(LocalPlayer.UserId)
+        local pName = LocalPlayer.Name
+
+        local fishesFolder = Workspace:FindFirstChild("Fishes")
+        if fishesFolder then
+            local targetFish = nil
+            if fishID and fishID ~= "" then
+                targetFish = fishesFolder:FindFirstChild(fishID)
+            end
+            if not targetFish then
+                for _, f in ipairs(fishesFolder:GetChildren()) do
+                    if f:FindFirstChild(uid .. "_PlayerHealth")
+                       or (f:FindFirstChild("PlayerContribution") and f.PlayerContribution:FindFirstChild(pName)) then
+                        targetFish = f
+                        break
+                    end
+                end
+            end
+            if targetFish then
+                if targetFish:FindFirstChild("Buoy") and targetFish.Buoy:IsA("BasePart") then
+                    fishPos = targetFish.Buoy.Position
+                elseif targetFish:FindFirstChild("Model") and targetFish.Model:IsA("Model") then
+                    fishPos = targetFish.Model:GetPivot().Position
+                elseif targetFish:IsA("Model") then
+                    fishPos = targetFish:GetPivot().Position
+                else
+                    local bp = targetFish:FindFirstChildWhichIsA("BasePart", true)
+                    if bp then fishPos = bp.Position end
+                end
+            end
+        end
+
+        if not fishPos and char then
+            local buoy = char:FindFirstChild("Buoy", true) or char:FindFirstChild("Bobber", true) or char:FindFirstChild("Hook", true)
+            if buoy and buoy:IsA("BasePart") and (buoy.Position - hrpPos).Magnitude > 3 then
+                fishPos = buoy.Position
+            else
+                local bestDist = 3
+                for _, d in ipairs(char:GetDescendants()) do
+                    if (d:IsA("Beam") or d:IsA("RopeConstraint") or d:IsA("RodConstraint")) and d.Attachment0 and d.Attachment1 then
+                        local p0 = d.Attachment0.WorldPosition
+                        local p1 = d.Attachment1.WorldPosition
+                        local dist0 = (p0 - hrpPos).Magnitude
+                        local dist1 = (p1 - hrpPos).Magnitude
+                        local farAtt = dist1 > dist0 and d.Attachment1 or d.Attachment0
+                        local farDist = math.max(dist0, dist1)
+                        if farDist > bestDist then
+                            bestDist = farDist
+                            fishPos = farAtt.WorldPosition
+                        end
+                    end
+                end
+            end
+        end
+
+        if not fishPos then
+            local wsBuoy = Workspace:FindFirstChild("Buoy") or Workspace:FindFirstChild("Bobber")
+            if wsBuoy and wsBuoy:IsA("BasePart") and (wsBuoy.Position - hrpPos).Magnitude > 3 then
+                fishPos = wsBuoy.Position
+            end
+        end
+
+        if fishRingAnchor.Parent ~= Workspace then fishRingAnchor.Parent = Workspace end
+        if fishRingAdornment.Adornee ~= fishRingAnchor then fishRingAdornment.Adornee = fishRingAnchor end
+        if fishRingBillboard.Adornee ~= fishRingAnchor then fishRingBillboard.Adornee = fishRingAnchor end
+
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        local isHooked = char and (char:GetAttribute("Fishing") == true or char:GetAttribute("Minigame") == true)
+        local fUI = pg and pg:FindFirstChild("MainGui") and pg.MainGui:FindFirstChild("Fishing")
+        local isRodActive = char and (char:GetAttribute("Type") == "Fishing Rod") and fishPos and ((fishPos - hrpPos).Magnitude > 3)
+        local shouldShow = fishPos and (isHooked or (fUI and fUI.Visible) or (fishID and fishID ~= "") or isRodActive)
+
+        if shouldShow then
+            fishRingAnchor.Position = fishPos
+            fishRingAdornment.Visible = true
+
+            local isPulling = (char and char:GetAttribute("Minigame") == true) or (fUI and fUI.Visible)
+            fishRingAdornment.Color3 = isPulling and Color3.fromRGB(255, 45, 45) or Color3.fromRGB(255, 175, 45)
+
+            -- 重量 & 突变显示（仅当开启 ShowFishWeightRing）
+            if Config.ShowFishWeightRing then
+                local fName = nil
+                local fWeight = char and (char:GetAttribute("FishWeight") or char:GetAttribute("Weight"))
+                local fMutation = char and (char:GetAttribute("FishMutation") or char:GetAttribute("Mutation"))
+                local curHp, maxHp = nil, nil
+
+                if fishesFolder then
+                    local f = (fishID and fishesFolder:FindFirstChild(fishID))
+                    if not f then
+                        for _, ch in ipairs(fishesFolder:GetChildren()) do
+    if ch:FindFirstChild(uid .. "_PlayerHealth") then
+        f = ch
+        break
+    end
+end
+                    end
+                    if f then
+                        if f:GetAttribute("FishName") then fName = f:GetAttribute("FishName") end
+                        maxHp = f:GetAttribute("MaxHealth")
+                        if typeof(f.Value) == "number" then curHp = f.Value end
+                    end
+                end
+
+                if not fWeight and fUI then
+                    local wLabel = fUI:FindFirstChild("Weight", true) or fUI:FindFirstChild("FishWeight", true)
+                    if wLabel and wLabel:IsA("TextLabel") and wLabel.Text ~= "" then
+                        fWeight = wLabel.Text
+                    end
+                end
+
+                local displayParts = {}
+                if fName and fName ~= "" then table.insert(displayParts, tostring(fName)) end
+                if fMutation and tostring(fMutation) ~= "" then table.insert(displayParts, "[" .. tostring(fMutation) .. "]") end
+                if fWeight then
+                    local wStr = tostring(fWeight)
+                    if tonumber(wStr) then wStr = string.format("%.1f kg", tonumber(wStr)) end
+                    table.insert(displayParts, "(" .. wStr .. ")")
+                end
+                if curHp and maxHp and maxHp > 0 then
+                    table.insert(displayParts, string.format("• ❤️ %d/%d", math.floor(curHp), maxHp))
+                end
+
+                if #displayParts > 0 then
+                    fishRingText.Text = table.concat(displayParts, " ")
+                    fishRingText.Visible = true
+                elseif isPulling then
+                    fishRingText.Text = "⚡ 拉鱼中"
+                    fishRingText.Visible = true
+                elseif isHooked then
+                    fishRingText.Text = "🎣 抛竿中"
+                    fishRingText.Visible = true
+                else
+                    fishRingText.Visible = false
+                end
+            else
+                fishRingText.Visible = false
+            end
+        else
+            fishRingAdornment.Visible = false
+            fishRingText.Visible = false
+        end
+    else
+        if fishRingAdornment.Visible then fishRingAdornment.Visible = false end
+        if fishRingText.Visible then fishRingText.Visible = false end
+    end
+end))
+
+table.insert(activeConnections, UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.RightControl or input.KeyCode == Config.UIKeybind then
+        if ToggleUiVisibility then ToggleUiVisibility() end
+    elseif input.KeyCode == Enum.KeyCode.End or input.KeyCode == Config.StopKeybind then
+        UnloadScript()
+    end
+end))
+
+-- ============================================================
+-- 内存日志（排查挂机闪退）：开启后每 5 分钟打印一次
+-- 输出示例：[MEM] gc=12345KB client=420.5MB esp=0 chat=12 notif=1
+-- ============================================================
+task.spawn(function()
+    while isRunning do
+        task.wait(300)
+        if not isRunning then break end
+        if Config.MemoryLog then
+            pcall(function()
+                local function countMap(t)
+                    local n = 0
+                    if type(t) == "table" then for _ in pairs(t) do n = n + 1 end end
+                    return n
+                end
+
+                local gcText = "?"
+                local okGc, gc = pcall(function() return gcinfo() end)
+                if okGc and gc then gcText = tostring(gc) end
+
+                local mbText = "?"
+                local okMb, mb = pcall(function()
+                    return game:GetService("Stats"):GetTotalMemoryUsageMb()
+                end)
+                if okMb and mb then mbText = string.format("%.1f", mb) end
+
+                local notifN = 0
+                pcall(function() notifN = #notifContainer:GetChildren() end)
+
+                print(string.format("[MEM] gc=%sKB client=%sMB esp=%d chat=%d notif=%d",
+                    tostring(gcText), tostring(mbText), countMap(activeESP), countMap(seenChatLines), notifN))
+            end)
+        end
+    end
+end)
+
+ShowNotification("IDENTICAL V1.0", "Heavyweight Fishing 脚本已就绪！按 R-CTRL 切换菜单。", "SUCCESS", 5)
