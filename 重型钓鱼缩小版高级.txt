@@ -148,22 +148,88 @@ RhythmHumanizer = false, -- 真人模式 (10-35ms 随机反应延迟)
     FakeCash         = nil,   -- 伪装金钱（数字，nil=原文本）
 }
 
+-- ============================================================
+-- AnchorBar: "Out of bar" -> "In bar" 拦截
+-- 本次修复只改「钩子的寿命」，不改任何判定逻辑与功能：
+--   1) 原版把 __namecall 钩子常驻全局，等于给全客户端每一次 :方法()
+--      调用都套一层 Lua 闭包（实测 147ns -> 3095ns，慢 21 倍）；
+--   2) 原版 UnloadScript 不还原钩子，重新注入会叠成 2 层/3 层，
+--      最终整个客户端卡死 -> 闪退。
+-- 现在：只在「钓鱼小游戏界面可见」期间挂上，界面一关立刻还原。
+--   小游戏之外本来就不会有 "Out of bar" 发出，故功能完全等价。
+--   状态挂在 getgenv().HW_AnchorNamecall，主 chunk 不新增顶层 local。
+-- ============================================================
 if hookmetamethod and newcclosure then
-    local fmRemote = Events and Events:FindFirstChild("FishingMinigame")
-    local oldNamecall
-    oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
-        local method = getnamecallmethod()
-        if (self == fmRemote or (typeof(self) == "Instance" and self.Name == "FishingMinigame")) and method == "FireServer" and not checkcaller() then
-            if isRunning and Config and Config.AnchorBar then
-                local args = {...}
-                local action = tostring(args[1])
-                if action == "Out of bar" or action == "Out of bar (overpull)" or action:find("Out of bar") then
-                    return oldNamecall(self, "In bar", unpack(args, 2))
+    local hwANC = (getgenv and getgenv().HW_AnchorNamecall) or {}
+    if getgenv then getgenv().HW_AnchorNamecall = hwANC end
+
+    -- 上一次注入残留的钩子：先还原，杜绝层层叠加
+    if hwANC.prev then
+        pcall(function() hookmetamethod(game, "__namecall", hwANC.prev) end)
+    end
+    hwANC.prev = nil
+    hwANC.active = false
+
+    hwANC.set = function(on)
+        on = on and true or false
+        if on == hwANC.active then return end
+
+        if on then
+            -- 允许 fmRemote 为 nil：下面的 self.Name == "FishingMinigame" 兜底仍然生效
+            local fmRemote = Events and Events:FindFirstChild("FishingMinigame")
+            local oldNamecall
+            oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+                local method = getnamecallmethod()
+                if (self == fmRemote or (typeof(self) == "Instance" and self.Name == "FishingMinigame")) and method == "FireServer" and not checkcaller() then
+                    if isRunning and Config and Config.AnchorBar then
+                        local args = {...}
+                        local action = tostring(args[1])
+                        if action == "Out of bar" or action == "Out of bar (overpull)" or action:find("Out of bar") then
+                            return oldNamecall(self, "In bar", unpack(args, 2))
+                        end
+                    end
                 end
+                return oldNamecall(self, ...)
+            end))
+            hwANC.prev = oldNamecall
+            hwANC.active = true
+        else
+            local oldNamecall = hwANC.prev
+            hwANC.prev = nil
+            hwANC.active = false
+            if oldNamecall then
+                pcall(function() hookmetamethod(game, "__namecall", oldNamecall) end)
             end
         end
-        return oldNamecall(self, ...)
-    end))
+    end
+
+    -- 驱动器：抛竿一开始就挂钩，收竿后再多留 1.2s 兜住结束瞬间的 (overpull)
+    --   触发信号用「角色属性 Fishing/Minigame」——它比小游戏 UI 出现得更早，
+    --   可以躲开原先「UI 可见」门控的 250ms 空窗；脚本里 8345 行本来就在用这个属性。
+    hwANC.wantUntil = 0
+    task.spawn(function()
+        while isRunning do
+            task.wait(0.1)
+            pcall(function()
+                local want = false
+                if isRunning and Config and Config.AnchorBar then
+                    local ch = LocalPlayer.Character
+                    local attrFishing = ch ~= nil and (
+                        ch:GetAttribute("Fishing") == true or ch:GetAttribute("Minigame") == true)
+                    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+                    local mainGui = pg and pg:FindFirstChild("MainGui")
+                    local fishing = mainGui and mainGui:FindFirstChild("Fishing")
+                    local uiVisible = fishing ~= nil and fishing.Visible == true
+                    if attrFishing or uiVisible then
+                        hwANC.wantUntil = tick() + 1.2      -- 宽限期：钩子多留 1.2 秒
+                    end
+                    want = hwANC.wantUntil > tick()
+                end
+                hwANC.set(want)
+            end)
+        end
+        pcall(function() hwANC.set(false) end)
+    end)
 end
 
 local PROFILE_DIR = "Identical/HeavyweightFishing"
@@ -622,6 +688,11 @@ table.insert(cleanUpInstances, screenGui)
 
 local function UnloadScript()
     isRunning = false
+    -- 还原 AnchorBar 的 __namecall 钩子（原版缺失此步，重注入会层层叠加 → 卡死闪退）
+    pcall(function()
+        local a = getgenv and getgenv().HW_AnchorNamecall
+        if a and a.set then a.set(false) end
+    end)
     -- 卸载/重注入前先还原伪装显示文本（不清除已保存的伪装配置）
     if getgenv then
         local restoreFake = getgenv().IdenticalHeavyweightFakeRestore
