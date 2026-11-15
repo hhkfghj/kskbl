@@ -41,14 +41,6 @@ local Config = {
     AutoSkills = false, -- 自动技能
     SelectedSkill = "One-Strike Heaven Gate", -- 选择的技能
     
-    AutoEquipBestBait = false, -- 自动装备最佳鱼饵
-    AutoEquipBestRod = false, -- 自动装备最佳鱼竿
-    AutoEquipBestOrb = false, -- 自动装备最佳宝珠
-    Loadout1_Rod = "Wooden Rod", -- 方案1鱼竿
-    Loadout1_Bait = "Basic Bait", -- 方案1鱼饵
-    Loadout2_Rod = "Wooden Rod", -- 方案2鱼竿
-    Loadout2_Bait = "Basic Bait", -- 方案2鱼饵
-    
 AutoSell = false, -- 自动卖鱼
 SellInterval = 30, -- 卖鱼间隔
 AutoFavouriteFish = false, -- 自动收藏鱼（总开关）
@@ -68,17 +60,15 @@ RhythmHumanizer = false, -- 真人模式 (10-35ms 随机反应延迟)
     AutoEnzoMinigame = false, -- 自动恩佐小游戏(极小概率封号)
     BossDifficulty = "简单", -- Boss难度(简单/困难)  
     SelectedBoss = "Enzo", -- 选择的Boss
+    RodSkinBeauty = false, -- 皮肤美化（鱼竿皮肤实体化）
+    RodSkinPick = "Starlight Rod", -- 选中的皮肤
     
-    AutoGodSpiritCheck = false, -- 自动检测神灵
-    AutoPrayGodSpirit = false, -- 自动祈祷神灵
     AutoServerHopGod = false, -- 自动跳服务器找神灵
     AutoServerHopMaoshan = false, -- 自动跳服务器找茅山
     AutoServerHopTaoist = false, -- 自动跳服务器找道士
     
     AutoTicketQuest = false, -- 自动票据任务
     TicketDifficulty = "Easy", -- 票据任务难度
-    AutoClaimDaily = false, -- 自动领取每日奖励
-    DailyClaimDelay = 0.5, -- 每日奖励领取延迟
     
     AutoCraftBait = false, -- 自动制作鱼饵
     CraftBaitName = "Nameless Bait", -- 制作鱼饵名称
@@ -92,10 +82,6 @@ RhythmHumanizer = false, -- 真人模式 (10-35ms 随机反应延迟)
     GiveFishDelay = 0.06,           -- 每步操作延迟(秒)
     GiveFishInterval = 1.2,         -- 每轮完整流程间隔(秒)
     GiveFishMinCount = 100,         -- 背包最少鱼数量才运行
-    
-    AutoGacha = false, -- 自动扭蛋
-    GachaBanner = "Taiji Banner", -- 扭蛋卡池
-    GachaPullsPerAction = 1, -- 每次扭蛋次数
     
     WalkSpeedEnabled = false, -- 启用步行加速
     WalkSpeedValue = 16, -- 步行速度值
@@ -1888,42 +1874,17 @@ end
 
 local tabFishing   = CreateTab("钓鱼")
 local tabBoss      = CreateTab("Boss")
-local tabGod       = CreateTab("神灵")
+local tabGod       = CreateTab("服务器传送")
 local tabQuests    = CreateTab("任务")
 local tabShop      = CreateTab("商店与制作")
 local tabTeleports = CreateTab("传送")
 local tabVisuals   = CreateTab("视觉")
 local tabPlayer    = CreateTab("移动")
+-- 不额外占用主 chunk 的 local 名额（已接近 200 上限），页面内容在文件末尾用 tabFrames["本地物品"] 取
+CreateTab("本地物品")
 local tabProfiles  = CreateTab("配置文件")
 
 SwitchTab("钓鱼")
-
-local allRods = {
-    {name = "Wooden Rod", price = 0, power = 8, luck = 1},
-    {name = "Bamboo Rod", price = 100, power = 11, luck = 5},
-    {name = "Iron Hook Rod", price = 500, power = 13, luck = 10},
-    {name = "Steel Rod", price = 1000, power = 17, luck = 11},
-    {name = "Enchanted Steel Rod", price = 2000, power = 19, luck = 12},
-    {name = "Alloy Rod", price = 5000, power = 22, luck = 5},
-    {name = "Emerald Rod", price = 10000, power = 25, luck = 10},
-    {name = "Bloodfire Rod", price = 20000, power = 27, luck = 10},
-    {name = "Shadow Rod", price = 60000, power = 29, luck = 22},
-    {name = "Triple Steel Rod", price = 100000, power = 32, luck = 20},
-    {name = "Golden Rod", price = 200000, power = 35, luck = 22},
-    {name = "Grandmaster Steel Rod", price = 250000, power = 37, luck = 10},
-    {name = "Grandmaster Golden Rod", price = 1000000, power = 45, luck = 30},
-    {name = "Steel Spine Rod", price = 1500000, power = 48, luck = 20},
-    {name = "Inferno Rod", price = 1500000, power = 48, luck = 18},
-    {name = "Golden Spine Rod", price = 2000000, power = 51, luck = 21},
-    {name = "Platinum Spine Rod", price = 3000000, power = 54, luck = 25},
-    {name = "Diamond Spine Rod", price = 4000000, power = 56, luck = 25},
-    {name = "Gravisteel Rod", price = 5000000, power = 58, luck = 15},
-    {name = "Auric Gravity Rod", price = 6000000, power = 60, luck = 10},
-    {name = "Inferno Gravity Rod", price = 7000000, power = 62, luck = 20},
-    {name = "Cryo Gravity Rod", price = 8000000, power = 65, luck = 36},
-    {name = "Thunder Thorn Rod", price = 10000000, power = 67, luck = 30},
-    {name = "Starlight Rod", price = 60000000, power = 83, luck = 15},
-}
 
 createCategoryHeader(tabFishing, "实时账户与钓鱼统计").LayoutOrder = 10
 local statsCard = createCardGroup(tabFishing)
@@ -2140,62 +2101,6 @@ do
     end)
 end
 
-createCategoryHeader(tabFishing, "智能自动装备引擎").LayoutOrder = 50
-local equipCard = createCardGroup(tabFishing)
-equipCard.LayoutOrder = 51
-createToggleRow(equipCard, "自动装备最佳鱼饵", "装备背包中运气最高的鱼饵", Config.AutoEquipBestBait, function(v) Config.AutoEquipBestBait = v end)
-createToggleRow(equipCard, "自动装备最佳鱼竿", "装备你拥有的最高威力鱼竿", Config.AutoEquipBestRod, function(v) Config.AutoEquipBestRod = v end)
-createToggleRow(equipCard, "自动装备最佳宝珠", "装备最高等级精华宝珠", Config.AutoEquipBestOrb, function(v) Config.AutoEquipBestOrb = v end)
-
-local rodNameList = {}
-for _, r in ipairs(allRods) do table.insert(rodNameList, r.name) end
-local baitNameList = {"Basic Bait", "Crude Mash Bait", "Corrupted Essence Bait", "Elite Bait", "Ancestral Bait", "Nameless Bait"}
-
-createDropdownRow(equipCard, "方案1：鱼竿", "方案1的鱼竿", rodNameList, Config.Loadout1_Rod, function(v) Config.Loadout1_Rod = v end)
-createDropdownRow(equipCard, "方案1：鱼饵", "方案1的鱼饵", baitNameList, Config.Loadout1_Bait, function(v) Config.Loadout1_Bait = v end)
-createButtonRow(equipCard, "立即装备方案1", "装备方案1选择的鱼竿和鱼饵", "装备#1", function()
-    local pData = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild(LocalPlayer.UserId)
-    if pData then
-        local rFolder = pData.FishingRodInventory:FindFirstChild(Config.Loadout1_Rod)
-        local isOwned = rFolder and rFolder:FindFirstChild("Owned") and rFolder.Owned.Value == true
-        if isOwned then
-            if Events:FindFirstChild("EquipFishingRod") then Events.EquipFishingRod:InvokeServer(Config.Loadout1_Rod) end
-            ShowNotification("方案1", "已装备鱼竿: " .. Config.Loadout1_Rod, "SUCCESS")
-        else
-            ShowNotification("方案1", "你还没有拥有 " .. Config.Loadout1_Rod .. " ！", "WARN")
-        end
-        local bFolder = pData.Bait:FindFirstChild(Config.Loadout1_Bait)
-        if bFolder and bFolder.Value > 0 then
-            if Events:FindFirstChild("EquipBait") then Events.EquipBait:InvokeServer(Config.Loadout1_Bait) end
-            ShowNotification("方案1", "已装备鱼饵: " .. Config.Loadout1_Bait, "SUCCESS")
-        else
-            ShowNotification("方案1", "你的背包中 " .. Config.Loadout1_Bait .. " 数量为0。", "WARN")
-        end
-    end
-end)
-
-createDropdownRow(equipCard, "方案2：鱼竿", "方案2的鱼竿", rodNameList, Config.Loadout2_Rod, function(v) Config.Loadout2_Rod = v end)
-createDropdownRow(equipCard, "方案2：鱼饵", "方案2的鱼饵", baitNameList, Config.Loadout2_Bait, function(v) Config.Loadout2_Bait = v end)
-createButtonRow(equipCard, "立即装备方案2", "装备方案2选择的鱼竿和鱼饵", "装备#2", function()
-    local pData = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild(LocalPlayer.UserId)
-    if pData then
-        local rFolder = pData.FishingRodInventory:FindFirstChild(Config.Loadout2_Rod)
-        local isOwned = rFolder and rFolder:FindFirstChild("Owned") and rFolder.Owned.Value == true
-        if isOwned then
-            if Events:FindFirstChild("EquipFishingRod") then Events.EquipFishingRod:InvokeServer(Config.Loadout2_Rod) end
-            ShowNotification("方案2", "已装备鱼竿: " .. Config.Loadout2_Rod, "SUCCESS")
-        else
-            ShowNotification("方案2", "你还没有拥有 " .. Config.Loadout2_Rod .. " ！", "WARN")
-        end
-        local bFolder = pData.Bait:FindFirstChild(Config.Loadout2_Bait)
-        if bFolder and bFolder.Value > 0 then
-            if Events:FindFirstChild("EquipBait") then Events.EquipBait:InvokeServer(Config.Loadout2_Bait) end
-            ShowNotification("方案2", "已装备鱼饵: " .. Config.Loadout2_Bait, "SUCCESS")
-        else
-            ShowNotification("方案2", "你的背包中 " .. Config.Loadout2_Bait .. " 数量为0。", "WARN")
-        end
-    end
-end)
 
 createCategoryHeader(tabFishing, "经济与出售").LayoutOrder = 60
 local sellCard = createCardGroup(tabFishing)
@@ -4364,6 +4269,14 @@ createDropdownRow(bossFarmCard, "Boss难度", "选择要刷的Boss难度（简�
 createToggleRow(bossFarmCard, "自动刷隐藏Boss", "自动制作无名鱼饵，召唤并击杀", Config.AutoFarmSecretBoss, function(v) Config.AutoFarmSecretBoss = v end)
 
 createToggleRow(bossFarmCard, "自动恩佐/龙钓海小游戏", "极小概率封号", Config.AutoEnzoMinigame, function(v) Config.AutoEnzoMinigame = v end)
+createButtonRow(bossFarmCard, "🧪 测试恩佐小游戏（本地模拟）", "本地摆一局 Boss 小游戏：随机判定区 + 光标来回扫，直接看自动点击的命中率", "开始测试", function()
+    local f = getgenv().HW_EnzoTest
+    if type(f) == "function" then
+        task.spawn(f, 12)
+    else
+        ShowNotification("测试恩佐", "脚本还没加载完，稍等一下再点。", "WARN", 3)
+    end
+end)
 
 createButtonRow(bossFarmCard, "传送到Enzo", "传送到Enzo竞技场", "传送", function()
     local char = LocalPlayer.Character
@@ -4383,38 +4296,6 @@ createButtonRow(bossFarmCard, "传送到龙钓海", "传送到龙钓海", "传�
     end
 end)
 
-createCategoryHeader(tabGod, "神灵交互与状态")
-local godCard = createCardGroup(tabGod)
-
-createButtonRow(godCard, "检查神灵状态", "检查活跃祝福(黄/蓝/绿)", "检查状态", function()
-    local pData = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild(LocalPlayer.UserId)
-    if pData and pData:FindFirstChild("GodSpirit") then
-        local y = pData.GodSpirit:FindFirstChild("Yellow") and pData.GodSpirit.Yellow.Value or false
-        local b = pData.GodSpirit:FindFirstChild("Blue") and pData.GodSpirit.Blue.Value or false
-        local g = pData.GodSpirit:FindFirstChild("Green") and pData.GodSpirit.Green.Value or false
-        local msg = string.format("黄色: %s | 蓝色: %s | 绿色: %s", y and "活跃" or "关闭", b and "活跃" or "关闭", g and "活跃" or "关闭")
-        ShowNotification("神灵状态", msg, "SUCCESS", 6)
-    else        ShowNotification("神灵", "无法读取神灵数据。", "WARN")
-    end
-end)
-
-createToggleRow(godCard, "自动祈祷神灵", "在神灵祭坛时自动祈祷", Config.AutoPrayGodSpirit, function(v) Config.AutoPrayGodSpirit = v end)
-
-createButtonRow(godCard, "传送到神灵祭坛", "传送到神灵祭坛(战场岛)", "传送", function()
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if root then
-        local spirit = (Workspace:FindFirstChild("NPC") and Workspace.NPC:FindFirstChild("Spirit")) or (Workspace:FindFirstChild("NPC") and Workspace.NPC:FindFirstChild("God"))
-        if spirit then
-            root.CFrame = spirit:GetPivot() + Vector3.new(0, 3, 5)
-            ShowNotification("神灵", "已传送到神灵祭坛！", "SUCCESS")
-        else
-            root.CFrame = CFrame.new(1245.7, 19.3, -133.4)
-            ShowNotification("神灵", "已传送到神社位置！", "SUCCESS")
-        end
-    end
-end)
-
 local function TriggerPrompt(prompt)
     if fireproximityprompt then
         fireproximityprompt(prompt)
@@ -4426,26 +4307,6 @@ local function TriggerPrompt(prompt)
         end)
     end
 end
-
-createButtonRow(godCard, "立即祈祷神灵", "与神灵祭坛提示交互", "祈祷", function()
-    local sp = (Workspace:FindFirstChild("NPC") and Workspace.NPC:FindFirstChild("Spirit")) or (Workspace:FindFirstChild("NPC") and Workspace.NPC:FindFirstChild("God"))
-    if sp then
-        local found = false
-        for _, d in ipairs(sp:GetDescendants()) do
-            if d:IsA("ProximityPrompt") then
-                TriggerPrompt(d)
-                found = true
-            end
-        end
-        if found then
-            ShowNotification("神灵", "已在祭坛祈祷神灵！", "SUCCESS")
-        else
-            ShowNotification("神灵", "在神灵上未找到近距离提示。", "WARN")
-        end
-    else
-        ShowNotification("神灵", "此服务器中神灵未生成。", "WARN")
-    end
-end)
 
 -- ============================================================
 -- 🔁 服务器跳转引擎（移植自源码 secretBossState.ServerHop / HandleTeleportError）
@@ -5302,40 +5163,6 @@ createButtonRow(questCard, "接受并提交票据任务(困难)", "对 NPC 发�
     SubmitTicket("Hard")
 end)
 
-createCategoryHeader(tabQuests, "每日任务与奖励")
-local dailyCard = createCardGroup(tabQuests)
-createButtonRow(dailyCard, "领取每日任务", "检测完成的每日任务并领取", "领取", function()
-    if Events and Events:FindFirstChild("ClaimQuest") then
-        for i = 1, 4 do Events.ClaimQuest:FireServer("Daily", i) end
-        ShowNotification("每日任务", "已领取所有可用的每日任务！", "SUCCESS")
-    end
-end)
-
-createToggleRow(dailyCard, "自动领取每日奖励", "按顺序领取1到7天的每日奖励", Config.AutoClaimDaily, function(v) Config.AutoClaimDaily = v end)
-createSliderRow(dailyCard, "领取延迟", "领取天数之间的延迟", 0.2, 2.0, Config.DailyClaimDelay, true, "秒", function(v) Config.DailyClaimDelay = v end)
-
-createButtonRow(dailyCard, "立即领取第1到7天", "批量领取所有7天每日奖励", "领取全部", function()
-    task.spawn(function()
-        if Events and Events:FindFirstChild("DailyReward") then
-            for day = 1, 7 do
-                Events.DailyReward:FireServer(day)
-                task.wait(Config.DailyClaimDelay)
-            end
-            ShowNotification("每日奖励", "已成功领取第1到7天！", "SUCCESS")
-        end
-    end)
-end)
-
-createButtonRow(dailyCard, "兑换所有代码", "兑换所有已知的有效促销代码", "兑换", function()
-    local codes = {"41MVisits", "36MVisits", "65KLikes", "37MVisits", "HWF", "AXO", "38MVisits", "39MVisits", "BUGTrait", "SeeYouSoon"}
-    if Events and Events:FindFirstChild("RedeemCode") then
-        for _, c in ipairs(codes) do
-            Events.RedeemCode:FireServer(c)
-            task.wait(0.2)
-        end
-        ShowNotification("代码", "已兑换所有有效代码！", "SUCCESS")
-    end
-end)
 
 createCategoryHeader(tabQuests, "NPC对话")
 local charCard = createCardGroup(tabQuests)
@@ -5878,56 +5705,6 @@ createSliderRow(baitCard, "购买数量", "每次购买的数量", 1, 50, Config
 createSliderRow(baitCard, "库存阈值", "库存低于此值时购买", 5, 50, Config.BuyBaitThreshold, false, "", function(v) Config.BuyBaitThreshold = v end)
 createToggleRow(baitCard, "自动购买鱼饵", "库存低时自动补货鱼饵", Config.AutoBuyBait, function(v) Config.AutoBuyBait = v end)
 
-createCategoryHeader(tabShop, "逸久贤者(技能商人)")
-local sageCard = createCardGroup(tabShop)
-local sageSkills = {"One-Strike Heaven Gate", "Taijiquan Technique", "Infinite Sky Ascension", "Rolling Chaos", "Sever the Gate", "Phoenix Strike Art", "Skyfall Stomp", "Beastbreaker Cleave", "Demonfall Technique", "Dragon Strike"}
-local chosenSageSkill = sageSkills[1]
-createDropdownRow(sageCard, "选择技能", "从逸久贤者处学习的技能", sageSkills, chosenSageSkill, function(v) chosenSageSkill = v end)
-
-createButtonRow(sageCard, "购买技能并传送", "传送到逸久贤者处并购买技能", "购买技能", function()
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if root then
-        root.CFrame = CFrame.new(-117.5, 6.8, 41.2)
-        task.wait(0.3)
-        if Events and Events:FindFirstChild("BuySkill") then
-            Events.BuySkill:FireServer(chosenSageSkill)
-            ShowNotification("逸久贤者", "已购买 " .. chosenSageSkill .. "！", "SUCCESS")
-        end
-    end
-end)
-
-createCategoryHeader(tabShop, "自动扭蛋")
-local gachaCard = createCardGroup(tabShop)
-createDropdownRow(gachaCard, "扭蛋卡池", "当前召唤卡池", {"太极卡池", "无我卡池"}, Config.GachaBanner, function(v) Config.GachaBanner = v end)
-createSliderRow(gachaCard, "每次扭蛋票数", "每次扭蛋动作的票数", 1, 10, Config.GachaPullsPerAction, false, "", function(v) Config.GachaPullsPerAction = v end)
-createToggleRow(gachaCard, "自动扭蛋", "自动从选中的卡池抽取", Config.AutoGacha, function(v) Config.AutoGacha = v end)
-
-createCategoryHeader(tabShop, "鱼竿商人目录(按价格排序)")
-local rodShopCard = createCardGroup(tabShop)
-
-local function formatNumber(n)
-    if n == 0 then return "免费" end
-    local formatted = tostring(n)
-    local k
-    while true do
-        formatted, k = string.gsub(formatted, "^(-?%d+)(%d%d%d)", "%1,%2")
-        if k == 0 then break end
-    end
-    return formatted .. " 现金"
-end
-
-for _, rod in ipairs(allRods) do
-    local pStr = formatNumber(rod.price)
-    local desc = string.format("威力: %d | 运气: %d%% | %s", rod.power, rod.luck, pStr)
-    createButtonRow(rodShopCard, rod.name, desc, "购买", function()
-        if Events and Events:FindFirstChild("BuyFishingRod") then
-            Events.BuyFishingRod:FireServer(rod.name)
-            ShowNotification("鱼竿商人", "尝试购买 " .. rod.name, "SUCCESS")
-        end
-    end)
-end
-
 createCategoryHeader(tabTeleports, "岛屿进度(1-10)")
 local islandCard = createCardGroup(tabTeleports)
 
@@ -5979,30 +5756,6 @@ for _, br in ipairs(bossRealms) do
     end)
 end
 
-createCategoryHeader(tabTeleports, "鱼竿商人商店(标迪)")
-local rodDealerCard = createCardGroup(tabTeleports)
-
-local rodDealers = {
-    {name = "[1] 起始岛商人", pos = Vector3.new(-151.4, 8.7, -49.9)},
-    {name = "[2] 竹岛商人", pos = Vector3.new(-1236.8, 7.3, -174.1)},
-    {name = "[3] 辐射岛商人", pos = Vector3.new(138.4, 9.0, 1179.7)},
-    {name = "[4] 主权岛商人", pos = Vector3.new(-1262.6, 8.2, 1202.2)},
-    {name = "[5] 鲈鱼岛商人", pos = Vector3.new(-9.5, 9.2, -1330.0)},
-    {name = "[6] 冰霜岛商人", pos = Vector3.new(-1400.4, 9.2, -1490.6)},
-    {name = "[7] 椰子岛商人", pos = Vector3.new(1446.0, 9.3, -1408.0)},
-    {name = "[8] 琥珀岛商人", pos = Vector3.new(1292.7, 8.2, 1497.4)},
-}
-
-for _, rd in ipairs(rodDealers) do
-    createButtonRow(rodDealerCard, rd.name, "直接传送到鱼竿商人", "传送", function()
-        local char = LocalPlayer.Character
-        local root = char and char:FindFirstChild("HumanoidRootPart")
-        if root then
-            root.CFrame = CFrame.new(rd.pos + Vector3.new(0, 3, 0))
-            ShowNotification("鱼竿商人", "已到达 " .. rd.name .. "！", "SUCCESS")
-        end
-    end)
-end
 
 createCategoryHeader(tabTeleports, "秘密鱼竿位置")
 local sRodCard = createCardGroup(tabTeleports)
@@ -7203,10 +6956,8 @@ local lastSellTime = 0
 -- 原简易技能轮换的 lastSkillTime / skillKeys / skillIdx / SkillInterval
 -- 已迁入 comboState.legacy*（见上方 Smart Combo 模块），这里不再重复声明，
 -- 避免与 RunSmartCombo 的降级轮换互相干扰。
-local lastGachaTime = 0
 local lastBaitBuyTime = 0
 local lastQuestTime = 0
-local lastGodPrayTime = 0
 local lastEquipTime = 0
 local lastProgressionTime = 0
 local lastProtectTime = 0
@@ -7420,52 +7171,6 @@ end
 
         if (now - lastEquipTime >= 5.0) and pData then
             lastEquipTime = now
-            if Config.AutoEquipBestBait and pData:FindFirstChild("Bait") and pData:FindFirstChild("EquippedBait") and Events:FindFirstChild("EquipBait") then
-                local bestBait = nil
-                local bestLuck = -1
-                local baitLuckMap = {
-                    ["Ancestral Bait"] = 50,
-                    ["Elite Bait"] = 30,
-                    ["Corrupted Essence Bait"] = 18,
-                    ["Crude Mash Bait"] = 8,
-                    ["Basic Bait"] = 3
-                }
-                for bName, bLuck in pairs(baitLuckMap) do
-                    local bVal = pData.Bait:FindFirstChild(bName)
-                    if bVal and bVal.Value > 0 and bLuck > bestLuck then
-                        bestLuck = bLuck
-                        bestBait = bName
-                    end
-                end
-                if bestBait and pData.EquippedBait.Value ~= bestBait then
-                    Events.EquipBait:InvokeServer(bestBait)
-                end
-            end
-
-            if Config.AutoEquipBestRod and pData:FindFirstChild("FishingRodInventory") and pData:FindFirstChild("FishingRod") and Events:FindFirstChild("EquipFishingRod") then
-                local bestRod = nil
-                local bestPower = -1
-                for _, r in ipairs(allRods) do
-                    local rFolder = pData.FishingRodInventory:FindFirstChild(r.name)
-                    local isOwned = rFolder and rFolder:FindFirstChild("Owned") and rFolder.Owned.Value == true
-                    if isOwned and r.power > bestPower then
-                        bestPower = r.power
-                        bestRod = r.name
-                    end
-                end
-                if bestRod and pData.FishingRod.Value ~= bestRod then
-                    Events.EquipFishingRod:InvokeServer(bestRod)
-                end
-            end
-
-            if Config.AutoEquipBestOrb and pData:FindFirstChild("Orb") and Events:FindFirstChild("EquipOrb") then
-                local orbs = pData.Orb:GetChildren()
-                if #orbs > 0 then
-                    local bestOrb = orbs[#orbs].Name
-                    Events.EquipOrb:InvokeServer(bestOrb)
-                end
-            end
-
             if pData:FindFirstChild("FishingRod") and pData.FishingRod.Value ~= "" then infoEquippedRod.Set(pData.FishingRod.Value) end
             if pData:FindFirstChild("EquippedBait") and pData.EquippedBait.Value ~= "" then infoEquippedBait.Set(pData.EquippedBait.Value) end
             if pData:FindFirstChild("FishCaught") then infoFishCaught.Set(tostring(pData.FishCaught.Value)) end
@@ -7479,20 +7184,6 @@ end
             end
         end
 
-        if Config.AutoPrayGodSpirit and (now - lastGodPrayTime >= 3.0) then
-            if Workspace:FindFirstChild("NPC") then
-                local sp = Workspace.NPC:FindFirstChild("Spirit") or Workspace.NPC:FindFirstChild("God")
-                if sp then
-                    for _, d in ipairs(sp:GetDescendants()) do
-                        if d:IsA("ProximityPrompt") then
-                            TriggerPrompt(d)
-                            lastGodPrayTime = now
-                        end
-                    end
-                end
-            end
-        end
-
   if Config.AutoTicketQuest and (now - lastQuestTime >= 2.0) then
     lastQuestTime = now
     task.spawn(function()
@@ -7500,19 +7191,6 @@ end
         SubmitTicket(diffKey)
     end)
 end
-
-        if Config.AutoClaimDaily and (now - lastCastTime >= 2.0) then
-            if Events and Events:FindFirstChild("DailyReward") then
-                for day = 1, 7 do Events.DailyReward:FireServer(day) end
-            end
-        end
-
-        if Config.AutoGacha and (now - lastGachaTime >= 1.5) then
-            if Events and Events:FindFirstChild("Gacha") then
-                Events.Gacha:FireServer(Config.GachaBanner, Config.GachaPullsPerAction)
-                lastGachaTime = now
-            end
-        end
 
         if Config.AutoCraftBait and (now - lastCastTime >= 2.0) then
             if Events and Events:FindFirstChild("CraftBait") then
@@ -7597,138 +7275,263 @@ end))
 
 do
     local VIM; pcall(function() VIM = game:GetService("VirtualInputManager") end)
-    local VU;  pcall(function() VU  = game:GetService("VirtualUser") end)
     local isMobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
 
-    -- 阈值越小越严(越接近完美)；0.05=极严 / 0.15=中 / 0.30=松
-    local CENTER_TOLERANCE = 0.15
+    -- 参数（不占 UI，改这里就行）
+    local WIN     = 0.50   -- 判定窗口 = 判定区宽度的这个比例：0.5 = 光标压进判定区就算中
+    local LEAD    = 0.006  -- 预估输入延迟（秒）：本机实测点击注入到游戏收到只有 ~2ms
+    local MIN_GAP = 0.10   -- 两次点击最小间隔
+    local N       = 6      -- 速度拟合用几帧
 
-    local function IsBossUIActive()
-        local pg = LocalPlayer:FindFirstChild("PlayerGui")
-        if not pg then return false end
-        local mg = pg:FindFirstChild("MainGui")
-        if not mg then return false end
-        local fishing = mg:FindFirstChild("Fishing")
-        if not fishing or not fishing.Visible then return false end
-        local bossBar = fishing:FindFirstChild("BossFightBar")
-        if not bossBar or not bossBar.Visible then return false end
-        if bossBar.AbsoluteSize.X <= 0 or bossBar.AbsoluteSize.Y <= 0 then return false end
-        return true
+    -- 固定数组环形缓冲：每帧零分配（之前每帧 new 一个 table 是卡的原因之一）
+    local sT, sDx = {}, {}
+    for i = 1, N do sT[i] = 0; sDx[i] = 0 end
+    local sCnt, sHead = 0, 0
+
+    local armed, lastClick, prevT, lastDx = true, 0, nil, nil
+
+    -- UI 引用只解析一次，之后只在实例失效时重解析（原来每帧链式 FindFirstChild）
+    local pg, mainGui, fishing, bossBar, hitBox, barObj
+
+    local function ResolveUI()
+        pg = LocalPlayer:FindFirstChild("PlayerGui")
+        mainGui = pg and pg:FindFirstChild("MainGui")
+        fishing = mainGui and mainGui:FindFirstChild("Fishing")
+        bossBar = fishing and fishing:FindFirstChild("BossFightBar")
+        hitBox  = bossBar and bossBar:FindFirstChild("Hitbox")
+        barObj  = bossBar and bossBar:FindFirstChild("Bar")
     end
+    ResolveUI()
 
-    local function GetBossFightBar()
-        if not IsBossUIActive() then return nil end
-        return LocalPlayer.PlayerGui.MainGui.Fishing.BossFightBar
-    end
-
-    local function GetTwoParts()
-        local bossBar = GetBossFightBar()
-        if not bossBar then return nil, nil end
-        local hitbox = bossBar:FindFirstChild("Hitbox")
-        local bar    = bossBar:FindFirstChild("Bar")
-        if not hitbox or not bar then return nil, nil end
-        if not hitbox:IsA("GuiObject") or not bar:IsA("GuiObject") then return nil, nil end
-        if not hitbox.Visible or not bar.Visible then return nil, nil end
-        if hitbox.AbsoluteSize.X <= 0 or bar.AbsoluteSize.X <= 0 then return nil, nil end
-        return hitbox, bar
-    end
-
-    local function FireClick()
-        local vp = Camera.ViewportSize
-        local x = vp.X / 2
-        local y = vp.Y / 2
-
-        if isMobile then
-            if touchtap then
-                local ok = pcall(function() touchtap(Vector2.new(x, y)) end)
-                if ok then return true end
-            end
-            if VIM then
-                local ok = pcall(function()
-                    VIM:SendTouchEvent(x, y, true,  game, 1)
-                    task.wait(0.015)
-                    VIM:SendTouchEvent(x, y, false, game, 1)
-                end)
-                if ok then return true end
-            end
+    local function Click()
+        local cam = Workspace.CurrentCamera
+        local vp = (cam and cam.ViewportSize) or Vector2.new(1024, 768)
+        local x = math.floor(vp.X * 0.5)
+        local y = math.floor(vp.Y * 0.5)
+        if isMobile and VIM then
+            -- 注意：SendTouchEvent 第 4 个参数必须是数字，传 game 会直接抛错（之前一直走的是鼠标路径）
+            if pcall(function()
+                VIM:SendTouchEvent(x, y, true, 1)
+                task.wait(0.012)
+                VIM:SendTouchEvent(x, y, false, 1)
+            end) then return true end
         end
-
         if VIM then
-            local ok = pcall(function()
-                VIM:SendMouseButtonEvent(x, y, 0, true,  game, 1)
-                task.wait(0.015)
+            if pcall(function()
+                VIM:SendMouseButtonEvent(x, y, 0, true, game, 1)
+                task.wait(0.012)
                 VIM:SendMouseButtonEvent(x, y, 0, false, game, 1)
-            end)
-            if ok then return true end
-        end
-
-        if VU then
-            local ok = pcall(function()
-                VU:CaptureController()
-                VU:ClickButton1(Vector2.new(x, y))
-            end)
-            if ok then return true end
+            end) then return true end
         end
         return false
     end
 
-    local clickedThisRound = false
-local prevBcx = nil
+    -- Heartbeat 而不是 RenderStepped：不占渲染帧，卡顿感主要来自这里
+    table.insert(activeConnections, RunService.Heartbeat:Connect(function()
+        if not isRunning or not Config.AutoEnzoMinigame then return end
 
-table.insert(activeConnections, RunService.RenderStepped:Connect(function()
-    if not isRunning or not Config.AutoEnzoMinigame then
-        clickedThisRound = false
-        prevBcx = nil
-        return
-    end
+        if not fishing or not fishing.Parent then
+            ResolveUI()
+            if not fishing then return end
+        end
+        if not bossBar or not bossBar.Parent then
+            ResolveUI()
+            if not bossBar then return end
+        end
+        -- 游戏可能重建 Bar / Hitbox：陈旧引用会一直返回，必须重新抓一次
+        if not hitBox or not hitBox.Parent or not barObj or not barObj.Parent then
+            ResolveUI()
+            if not hitBox or not barObj then return end
+        end
+        if not bossBar.Visible or not hitBox.Visible or not barObj.Visible then return end
 
-    if not IsBossUIActive() then
-        clickedThisRound = false
-        prevBcx = nil
-        return
-    end
+        local hw = hitBox.AbsoluteSize.X
+        if hw < 2 then return end
+        local hcx = hitBox.AbsolutePosition.X + hw * 0.5
+        local bcx = barObj.AbsolutePosition.X + barObj.AbsoluteSize.X * 0.5
+        local dx = bcx - hcx
+        local halfWin = hw * WIN
+        local t = os.clock()
+        prevT = t
 
-    local a, b = GetTwoParts()
-    if not a or not b then
-        clickedThisRound = false
-        prevBcx = nil
-        return
-    end
+        -- 采样（环形缓冲，不分配）
+        sHead = sHead % N + 1
+        sT[sHead] = t
+        sDx[sHead] = dx
+        if sCnt < N then sCnt = sCnt + 1 end
 
-    local hcx = a.AbsolutePosition.X + a.AbsoluteSize.X / 2
-    local bcx = b.AbsolutePosition.X + b.AbsoluteSize.X / 2
-    local hw  = a.AbsoluteSize.X
-    local dx  = math.abs(bcx - hcx)
+        -- 相对速度：最小二乘（抗抖动）
+        local v = 0
+        if sCnt >= 2 then
+            local n, s1, sd, stt, std = 0, 0, 0, 0, 0
+            local start = (sHead - sCnt) % N + 1
+            local t0 = sT[start]
+            for k = 0, sCnt - 1 do
+                local idx = (start + k - 1) % N + 1
+                local d = sT[idx] - t0
+                n = n + 1
+                s1 = s1 + d
+                sd = sd + sDx[idx]
+                stt = stt + d * d
+                std = std + d * sDx[idx]
+            end
+            local den = n * stt - s1 * s1
+            if math.abs(den) > 1e-7 then v = (n * std - s1 * sd) / den end
+            if math.abs(v) > 4000 then v = 0 end   -- 瞬移造成的假速度，丢掉
+        end
 
-    -- Bar 远离 Hitbox → 解锁，准备下一轮
-    if dx > hw * 0.8 then
-        clickedThisRound = false
-    end
+        -- 瞬移（换轮/换判定区）：清空采样，别拿跳变算速度
+        if lastDx and math.abs(dx - lastDx) > 40 then
+            sCnt = 0
+            lastDx = dx
+            armed = true          -- 瞬移基本等于换轮：重新武装，别把新的一轮漏掉
+            return
+        end
+        lastDx = dx
 
-    if not clickedThisRound then
-        local halfWin = hw * CENTER_TOLERANCE
-
-        -- 条件1: 当前帧就在窗口内
-        local inWindow = dx <= halfWin
-
-        -- 条件2: 上一帧到这一帧的轨迹穿过了窗口
-        local crossed = false
-        if prevBcx then
-            local left  = math.min(prevBcx, bcx)
-            local right = math.max(prevBcx, bcx)
-            if left <= hcx + halfWin and right >= hcx - halfWin then
-                crossed = true
+        -- 本轮已经点过：光标跑出判定区且正在远离，或超时，才重新武装
+        if not armed then
+            if (math.abs(dx) > halfWin * 1.35 and dx * v > 0) or (t - lastClick > 0.9) then
+                armed = true
             end
         end
 
-        if inWindow or crossed then
-            clickedThisRound = true
-            FireClick()
+        if not armed then return end
+        if t - lastClick < MIN_GAP then return end
+
+        -- 现在按下去，落地时（t + LEAD）光标压在哪
+        -- 提前量：默认 LEAD，可用 getgenv().HW_EnzoLead 现场标定
+        local lead = LEAD
+        local ge = getgenv
+        if ge then
+            local ov = ge().HW_EnzoLead
+            if type(ov) == "number" then lead = math.clamp(ov, 0, 0.12) end
         end
+        local pred = dx + v * lead
+        -- 速度还不够稳（刚从换轮重置过来）时只用半个窗口，稳了再用 3/4 窗口；
+        -- 都不打满窗口，给预测误差留余量
+        local winF = 0.5
+        if sCnt >= 3 and math.abs(v) > 50 then winF = 0.75 end
+        local fire = math.abs(pred) <= halfWin * winF
+        if not fire and math.abs(v) > 50 and math.abs(dx) <= halfWin * 3 then
+            -- 也可以等"中心重合"那一帧：理想按下时刻 = -dx/v - lead
+            local ideal = (-dx / v) - lead
+            if ideal >= 0 and ideal <= 0.018 then fire = true end
+        end
+        if not fire then return end
+
+        armed, lastClick, sCnt = false, t, 0
+        local genv = getgenv and getgenv() or nil
+        if genv then genv.HW_EnzoFire = { dx = dx, v = v, pred = pred } end
+        task.spawn(Click)
+    end))
+
+    -- ================= 本地模拟小游戏（像章鱼那个测试按钮一样，纯本地）=================
+    -- 摆出 BossFightBar：随机判定区 + 光标来回扫，直接验证自动点击中不中。
+    -- 再点一次测试按钮 = 立刻结束并还原界面（外层 Fishing 的可见性也会还原）。
+    local testBusy = false
+    local finishTest = nil
+
+    local function TestMinigame(seconds)
+        if testBusy then
+            if finishTest then pcall(finishTest) end
+            return
+        end
+        ResolveUI()
+        if not (fishing and bossBar and hitBox and barObj) then
+            ShowNotification("测试恩佐", "找不到 BossFightBar，进一次 Boss 战之后再试。", "WARN", 4)
+            return
+        end
+
+        testBusy = true
+        seconds = seconds or 12
+
+        local wasAuto = Config.AutoEnzoMinigame == true
+        if not wasAuto then
+            Config.AutoEnzoMinigame = true
+            ShowNotification("测试恩佐", "已顺手打开「自动恩佐小游戏」开关。", "INFO", 3)
+        end
+
+        local savedFishingVis = fishing.Visible
+        local savedVis = {}
+        for _, c in ipairs(fishing:GetChildren()) do
+            if c:IsA("GuiObject") then savedVis[c] = c.Visible end
+        end
+        fishing.Visible = true
+        for c in pairs(savedVis) do c.Visible = (c == bossBar) end
+        bossBar.Visible = true
+        hitBox.Visible = true
+        barObj.Visible = true
+        hitBox.Position = UDim2.new(0.5, 0, 0.5, 0)
+        barObj.Position = UDim2.new(0.5, 0, 0.5, 0)
+
+        local stat = { clicks = 0, hits = 0, dqs = {}, trace = {}, running = true }
+        getgenv().HW_EnzoStat = stat
+
+        local t0 = os.clock()
+        local sweepConn = RunService.Heartbeat:Connect(function()
+            local el = os.clock() - t0
+            local period = (getgenv and getgenv().HW_EnzoTestPeriod) or 1.1   -- 一趟来回，可现场调速度
+            local raw = (el % period) / period
+            local k = raw <= 0.5 and (raw * 2) or (2 - raw * 2)   -- 0..1..0，走满整条
+            pcall(function() barObj.Position = UDim2.new(k, 0, 0.5, 0) end)
+        end)
+
+        local judgeConn = UserInputService.InputBegan:Connect(function(input)
+            local ut = input.UserInputType
+            if ut ~= Enum.UserInputType.Touch and ut ~= Enum.UserInputType.MouseButton1 then return end
+            local ok, d = pcall(function()
+                local hcx = hitBox.AbsolutePosition.X + hitBox.AbsoluteSize.X * 0.5
+                local bcx = barObj.AbsolutePosition.X + barObj.AbsoluteSize.X * 0.5
+                return math.abs(bcx - hcx)
+            end)
+            if not ok then return end
+            local half = hitBox.AbsoluteSize.X * 0.5
+            local hit = d <= half
+            stat.clicks = stat.clicks + 1
+            if hit then stat.hits = stat.hits + 1 end
+            if #stat.dqs < 60 then table.insert(stat.dqs, math.floor(d * 10) / 10) end
+            if #stat.trace < 40 then
+                local fr = getgenv and getgenv().HW_EnzoFire
+                table.insert(stat.trace, {
+                    d = math.floor(d * 10) / 10,
+                    fireDx = fr and math.floor(fr.dx * 10) / 10 or nil,
+                    v = fr and math.floor(fr.v) or nil,
+                })
+            end
+            ShowNotification("测试恩佐",
+                string.format("第 %d 次：偏差 %.1f px（窗口±%.1f）→ %s", stat.clicks, d, half, hit and "命中" or "未中"),
+                hit and "SUCCESS" or "WARN", 2)
+            -- 默认不挪判定区：先纯测点击时机；要测换轮就 getgenv().HW_EnzoTestMove = true
+            if stat.clicks % 2 == 0 and getgenv and getgenv().HW_EnzoTestMove then
+                pcall(function() hitBox.Position = UDim2.new(0.2 + math.random() * 0.6, 0, 0.5, 0) end)
+            end
+        end)
+
+        local function Stop()
+            if not testBusy then return end
+            testBusy = false
+            finishTest = nil
+            pcall(function() sweepConn:Disconnect() end)
+            pcall(function() judgeConn:Disconnect() end)
+            for c, v in pairs(savedVis) do pcall(function() c.Visible = v end) end
+            pcall(function()
+                bossBar.Visible = false
+                barObj.Position = UDim2.new(0.5, 0, 0.5, 0)
+                hitBox.Position = UDim2.new(0.5, 0, 0.5, 0)
+                fishing.Visible = savedFishingVis     -- 外层也要还原，否则界面会一直挂着
+            end)
+            Config.AutoEnzoMinigame = wasAuto
+            stat.running = false
+            ShowNotification("测试恩佐",
+                string.format("模拟结束：点击 %d 次，命中 %d 次", stat.clicks, stat.hits), "SUCCESS", 6)
+        end
+
+        finishTest = Stop
+        task.delay(seconds, Stop)
     end
 
-    prevBcx = bcx
-end))
+    getgenv().HW_EnzoTest = TestMinigame
 end
 -- ============================================================
 
@@ -8860,3 +8663,1254 @@ task.spawn(function()
 end)
 
 ShowNotification("IDENTICAL V1.0", "Heavyweight Fishing 脚本已就绪！按 R-CTRL 切换菜单。", "SUCCESS", 5)
+
+-- ============================================================
+-- 本地全物品（纯客户端：只改 ReplicatedStorage.Data 这份本地镜像）
+-- 服务端存档不会变。买东西 / 装皮肤 / 放技能时服务器查它自己那份数据，
+-- 所以“看得见”但不一定“用得动”；退出游戏或换服后自动恢复原样，
+-- 重新注入再点一次“一键全物品”即可。
+-- ============================================================
+local function installLocalItemsPage()
+    local LocalItems = { snapshot = {}, createdOrbs = {} }
+
+    local function getLocalItemData()
+        local root = ReplicatedStorage:FindFirstChild("Data")
+        if not root then return nil end
+        return root:FindFirstChild(tostring(LocalPlayer.UserId))
+    end
+
+    -- 写入前先记旧值；同一个值对象只记第一次，保证一键清理能回到点击前的状态
+    local function localSet(obj, newValue)
+        if not obj or not obj:IsA("ValueBase") then return end
+        if type(obj.Value) ~= type(newValue) then return end   -- 类型不对就别硬写，免得报错
+        if LocalItems.snapshot[obj] == nil then LocalItems.snapshot[obj] = obj.Value end
+        obj.Value = newValue
+    end
+
+    local function applyLocalItems()
+        local me = getLocalItemData()
+        if not me then
+            ShowNotification("本地物品", "玩家数据还没加载完，进游戏后再点。", "WARN", 4)
+            return false
+        end
+
+        local bait = me:FindFirstChild("Bait")
+        if bait then
+            for _, c in ipairs(bait:GetChildren()) do
+                if c:IsA("NumberValue") or c:IsA("IntValue") then localSet(c, 999) end
+            end
+        end
+
+        local skills = me:FindFirstChild("Skill")
+        if skills then
+            for _, k in ipairs(skills:GetChildren()) do
+                local owned = k:FindFirstChild("Owned")
+                if owned then localSet(owned, true) end
+                local boost = k:FindFirstChild("Boost")
+                if boost and type(boost.Value) == "number" then localSet(boost, 50) end
+            end
+        end
+
+        local rods = me:FindFirstChild("FishingRodInventory")
+        if rods then
+            for _, r in ipairs(rods:GetChildren()) do
+                local owned = r:FindFirstChild("Owned")
+                if owned then localSet(owned, true) end
+            end
+        end
+
+        local skins = me:FindFirstChild("RodSkin")
+        if skins then
+            for _, s in ipairs(skins:GetChildren()) do
+                if s:IsA("ValueBase") and type(s.Value) == "boolean" then localSet(s, true) end
+            end
+        end
+
+        local skinCount = me:FindFirstChild("RodSkinCount")
+        if skinCount then
+            for _, s in ipairs(skinCount:GetChildren()) do
+                if s:IsA("ValueBase") and type(s.Value) == "number" and s.Value < 1 then localSet(s, 1) end
+            end
+        end
+
+        local chars = me:FindFirstChild("PlayerCharacter")
+        if chars then
+            for _, c in ipairs(chars:GetChildren()) do
+                local owned = c:FindFirstChild("Owned")
+                if owned then localSet(owned, true) end
+                local level = c:FindFirstChild("Level")
+                if level then localSet(level, "5") end
+            end
+        end
+
+        -- 宝珠：缺哪种补哪种，属性取 Info.Orb 里定义的上限
+        local orbs = me:FindFirstChild("Orb")
+        local info = ReplicatedStorage:FindFirstChild("Info")
+        local orbInfo = info and info:FindFirstChild("Orb")
+        local addedOrbs = 0
+        if orbs and orbInfo then
+            local existNames = {}
+            for _, o in ipairs(orbs:GetChildren()) do
+                local vn = o:FindFirstChild("ValueName")
+                if vn and type(vn.Value) == "string" then existNames[vn.Value] = true end
+            end
+            for _, def in ipairs(orbInfo:GetChildren()) do
+                if not existNames[def.Name] then
+                    local okDef, cfg = pcall(require, def)
+                    if okDef and type(cfg) == "table" then
+                        local folder = Instance.new("Folder")
+                        folder.Name = HttpService:GenerateGUID(false)
+                        folder:SetAttribute("HWLocalCreated", true)
+                        local vn = Instance.new("StringValue")
+                        vn.Name = "ValueName"
+                        vn.Value = def.Name
+                        vn.Parent = folder
+                        local function num(field, value)
+                            local v = Instance.new("NumberValue")
+                            v.Name = field
+                            v.Value = type(value) == "number" and value or 0
+                            v.Parent = folder
+                        end
+                        num("Luck", cfg.MaxLuck)
+                        num("Damage", cfg.MaxDamage)
+                        num("Cooldown", cfg.MaxCooldown)
+                        num("Drop", cfg.MaxDrop)
+                        num("Cash", cfg.MaxCash)
+                        local fav = Instance.new("BoolValue")
+                        fav.Name = "Favorite"
+                        fav.Value = true
+                        fav.Parent = folder
+                        local eq = Instance.new("BoolValue")
+                        eq.Name = "Equipping"
+                        eq.Value = false
+                        eq.Parent = folder
+                        folder.Parent = orbs
+                        table.insert(LocalItems.createdOrbs, folder)
+                        addedOrbs = addedOrbs + 1
+                    end
+                end
+            end
+        end
+
+        ShowNotification("本地物品", "已获得全物品", "SUCCESS", 4)
+        return true
+    end
+
+    local function clearLocalItems()
+        local me = getLocalItemData()
+        local mode = "none"
+
+        if next(LocalItems.snapshot) ~= nil then
+            -- 有快照：精确回滚到点“一键全物品”之前
+            mode = "snapshot"
+            for obj, oldValue in pairs(LocalItems.snapshot) do
+                pcall(function()
+                    if obj and obj.Parent then obj.Value = oldValue end
+                end)
+            end
+            LocalItems.snapshot = {}
+        elseif me then
+            -- 没有快照（例如重新注入过）：按游戏初始值还原
+            mode = "defaults"
+            local bait = me:FindFirstChild("Bait")
+            if bait then
+                for _, c in ipairs(bait:GetChildren()) do
+                    if c:IsA("NumberValue") or c:IsA("IntValue") then c.Value = 0 end
+                end
+            end
+            local skills = me:FindFirstChild("Skill")
+            if skills then
+                for _, k in ipairs(skills:GetChildren()) do
+                    local owned = k:FindFirstChild("Owned")
+                    if owned then owned.Value = false end
+                    local boost = k:FindFirstChild("Boost")
+                    if boost and type(boost.Value) == "number" then boost.Value = 0 end
+                end
+            end
+            local rods = me:FindFirstChild("FishingRodInventory")
+            if rods then
+                for _, r in ipairs(rods:GetChildren()) do
+                    local owned = r:FindFirstChild("Owned")
+                    if owned then owned.Value = (r.Name == "Wooden Rod") end
+                end
+            end
+            local skins = me:FindFirstChild("RodSkin")
+            if skins then
+                for _, s in ipairs(skins:GetChildren()) do
+                    if s:IsA("ValueBase") and type(s.Value) == "boolean" then s.Value = false end
+                end
+            end
+            local skinCount = me:FindFirstChild("RodSkinCount")
+            if skinCount then
+                for _, s in ipairs(skinCount:GetChildren()) do
+                    if s:IsA("ValueBase") and type(s.Value) == "number" then s.Value = 0 end
+                end
+            end
+            local chars = me:FindFirstChild("PlayerCharacter")
+            if chars then
+                for _, c in ipairs(chars:GetChildren()) do
+                    local owned = c:FindFirstChild("Owned")
+                    if owned then owned.Value = false end
+                    local level = c:FindFirstChild("Level")
+                    if level and type(level.Value) == "string" then level.Value = "1" end
+                end
+            end
+        end
+
+        -- 只删本地补出来的宝珠（带标记，含上一次注入留下的），不碰你自己的
+        local removedOrbs = 0
+        if me then
+            local orbs = me:FindFirstChild("Orb")
+            if orbs then
+                for _, o in ipairs(orbs:GetChildren()) do
+                    if o:GetAttribute("HWLocalCreated") == true then
+                        o:Destroy()
+                        removedOrbs = removedOrbs + 1
+                    end
+                end
+            end
+        end
+        LocalItems.createdOrbs = {}
+
+        -- 外观类残留（别的脚本给角色 / 鱼竿套过皮肤的话一并撤掉）
+        local genv = getgenv and getgenv() or nil
+        if genv then
+            local cs = genv.__charSkin
+            if cs then
+                pcall(function() if cs.conn then cs.conn:Disconnect() end end)
+                pcall(function() if cs.model then cs.model:Destroy() end end)
+                pcall(function()
+                    if cs.origChar then
+                        for _, d in ipairs(cs.origChar:GetDescendants()) do
+                            if d:IsA("BasePart") then
+                                d.Transparency = d:GetAttribute("__origT") or 0
+                                d.LocalTransparencyModifier = 0
+                            end
+                        end
+                    end
+                end)
+                genv.__charSkin = nil
+            end
+            local rc = genv.__rodCosmetic
+            if rc then
+                pcall(function() if rc.track then rc.track:Stop() end end)
+                pcall(function() if rc.model then rc.model:Destroy() end end)
+                genv.__rodCosmetic = nil
+            end
+        end
+
+        if mode == "none" then
+            ShowNotification("本地物品", "没找到玩家数据，无法清理。", "WARN", 4)
+        else
+            ShowNotification("本地物品", "已清理全物品", "SUCCESS", 4)
+        end
+    end
+
+    -- ----- 本地物品页 -----
+    local page = tabFrames and tabFrames["本地物品"]
+    if page then
+        createCategoryHeader(page, "本地全物品")
+        local card = createCardGroup(page)
+
+        createButtonRow(card, "一键全物品",
+            "这个功能只是本地 只能看不能装 如果你有就可以装",
+            "应用", applyLocalItems)
+
+        createButtonRow(card, "一键清理",
+            "把本地改过的鱼饵 / 技能 / 鱼竿 / 皮肤 / 角色 / 宝珠还原回去",
+            "清理", clearLocalItems)
+    -- ----- 皮肤美化（鱼竿皮肤实体化 + 预览格子）-----
+    createCategoryHeader(page, "皮肤美化")
+    local beautyCard = createCardGroup(page)
+
+    local beautyToggle = createToggleRow(beautyCard, "皮肤美化",
+        "把手里的鱼竿换成选中的皮肤模型（仅本地显示，别人看不见）",
+        Config.RodSkinBeauty,
+        function(v)
+            Config.RodSkinBeauty = v
+            local eng = getgenv().HW_RodSkin
+            if eng then pcall(eng.Enable, v) end
+            pcall(SaveProfile)
+        end)
+
+    -- 预览格子：直接从游戏的鱼竿商店 ViewportFrame 拷一个模板出来用
+    local picks = {}
+    local function highlightPick(name)
+        for n, cell in pairs(picks) do
+            local on = (n == name)
+            local stroke = cell:FindFirstChildOfClass("UIStroke")
+            if stroke then
+                stroke.Color = on and Color3.fromRGB(178, 120, 255) or Color3.fromRGB(70, 70, 96)
+                stroke.Thickness = on and 2.5 or 1
+            end
+            pcall(function()
+                cell.BackgroundColor3 = on and Color3.fromRGB(58, 40, 92) or Colors.ControlBg
+            end)
+        end
+    end
+    getgenv().HW_RodSkinHighlight = highlightPick
+
+    local skinInfo = ReplicatedStorage:FindFirstChild("Info") and ReplicatedStorage.Info:FindFirstChild("Skin")
+    if skinInfo then
+        -- 英文名 → 中文名（游戏里没有官方汉化，这里按意思翻；表里没有的保留原名）
+        local CN = {
+            ["Demonic Rod"] = "恶魔鱼竿",
+            ["Triple Steel Rod"] = "三重钢制鱼竿",
+            ["Lifebloom Rod"] = "生命绽放鱼竿",
+            ["Anchorbound Rod"] = "锚定鱼竿",
+            ["Ascendant Bamboo Rod"] = "升华竹竿",
+            ["Auric Gravity Rod"] = "鎏金重力鱼竿",
+            ["Blazeshark Rod"] = "烈焰鲨鱼竿",
+            ["Blazing Horse Rod"] = "烈焰战马鱼竿",
+            ["Cupid Rod"] = "丘比特鱼竿",
+            ["Bamboo Rod"] = "竹制鱼竿",
+            ["Frostbite Rod"] = "霜咬鱼竿",
+            ["Sacred Bamboo Rod"] = "神圣竹竿",
+            ["Taiji Twin Scythe"] = "太极双镰",
+            ["Hell Devourer Rod"] = "地狱吞噬者",
+            ["Heavenpiercer Rod"] = "穿天者",
+            ["Taoist Rod"] = "道士鱼竿",
+            ["Bloodfire Rod"] = "血火鱼竿",
+            ["Golden Rod"] = "黄金鱼竿",
+            ["AWK Taiji Twin Scythe"] = "觉醒·太极双镰",
+            ["AWK Kraken Rod"] = "觉醒·海妖鱼竿",
+            ["Kraken Rod"] = "海妖鱼竿",
+            ["Divine Spear Rod"] = "神之长矛",
+            ["Specter's Chainsaw"] = "幽灵电锯",
+            ["AWK Specter's Chainsaw"] = "觉醒·幽灵电锯",
+            ["Golden Starwing Rod"] = "黄金星翼鱼竿",
+            ["Scarlet Corruption Rod"] = "猩红腐蚀鱼竿",
+            ["Troll Rod"] = "巨魔鱼竿",
+            ["Wisteria Caster"] = "紫藤施法者",
+            ["Cryoflower Bloom"] = "冰花绽放",
+            ["Maoshan Rod"] = "茅山鱼竿",
+            ["Pure Diamond Rod"] = "纯钻鱼竿",
+            ["Enchanted Steel Rod"] = "附魔钢制鱼竿",
+            ["Alloy Rod"] = "合金鱼竿",
+            ["Immortal Rod ss1"] = "不朽鱼竿 ss1",
+            ["Master Rod ss1"] = "大师鱼竿 ss1",
+            ["Heaven Rod"] = "天堂鱼竿",
+            ["Divine Rod"] = "神圣鱼竿",
+            ["Starlight Rod"] = "星光鱼竿",
+            ["Cursed Lantern Rod"] = "诅咒灯笼鱼竿",
+            ["Abyssal Spear Rod"] = "深渊长矛",
+        }
+        -- 稀有度排序：红(秘藏) → 黄(传说) → 紫(神话) → 蓝(稀有) → 灰(普通)
+        local RAR_RANK = { Secret = 1, Legendary = 2, Mythical = 3, Rare = 4, Common = 5 }
+        local entries = {}
+        for _, k in ipairs(skinInfo:GetChildren()) do
+            local okC, cfgC = pcall(require, k)
+            local rarC = (okC and type(cfgC) == "table" and cfgC.Rarity) or "Common"
+            entries[#entries + 1] = { name = k.Name, rar = rarC, cn = CN[k.Name] or k.Name }
+        end
+        table.sort(entries, function(a, b)
+            local ra, rb = RAR_RANK[a.rar] or 9, RAR_RANK[b.rar] or 9
+            if ra ~= rb then return ra < rb end
+            return a.cn < b.cn
+        end)
+
+
+        local gallery = Instance.new("Frame")
+        gallery.Size = UDim2.new(1, 0, 0, 250)
+        gallery.BackgroundColor3 = Colors.RowNormal
+        gallery.BackgroundTransparency = 0.45
+        gallery.BorderSizePixel = 0
+        gallery.Parent = page
+        Instance.new("UICorner", gallery).CornerRadius = UDim.new(0, 6)
+
+        local gs = Instance.new("ScrollingFrame")
+        gs.Size = UDim2.new(1, -8, 1, -8)
+        gs.Position = UDim2.new(0, 4, 0, 4)
+        gs.BackgroundTransparency = 1
+        gs.BorderSizePixel = 0
+        gs.ScrollBarThickness = 3
+        gs.CanvasSize = UDim2.new(0, 0, 0, 0)
+        gs.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        gs.Parent = gallery
+        local grid = Instance.new("UIGridLayout")
+        grid.CellSize = UDim2.new(0, 84, 0, 76)
+        grid.CellPadding = UDim2.new(0, 4, 0, 4)
+        grid.SortOrder = Enum.SortOrder.LayoutOrder
+        grid.Parent = gs
+
+        local RAR_COLOR = {
+            Common = Color3.fromRGB(150, 158, 172),
+            Rare = Color3.fromRGB(96, 170, 255),
+            Legendary = Color3.fromRGB(255, 190, 70),
+            Mythical = Color3.fromRGB(220, 96, 255),
+            Secret = Color3.fromRGB(255, 86, 120),
+        }
+
+        for i, entry in ipairs(entries) do
+            local name, rar, cn = entry.name, entry.rar, entry.cn
+            local okCfg, cfg = pcall(require, skinInfo:FindFirstChild(name))
+
+            local cell = Instance.new("TextButton")
+            cell.Name = name
+            cell.Size = UDim2.new(0, 84, 0, 76)
+            cell.BackgroundColor3 = Colors.ControlBg
+            cell.BackgroundTransparency = 0.15
+            cell.AutoButtonColor = false
+            cell.Text = ""
+            cell.LayoutOrder = i
+            cell.Parent = gs
+            Instance.new("UICorner", cell).CornerRadius = UDim.new(0, 5)
+            local st = Instance.new("UIStroke")
+            st.Color = Color3.fromRGB(70, 70, 96)
+            st.Thickness = 1
+            st.Parent = cell
+
+            -- 模型预览：自己搭 ViewportFrame（不依赖游戏里的模板）
+            if okCfg and type(cfg) == "table" and cfg.Model then
+                local okVp, vp = pcall(Instance.new, "ViewportFrame")
+                if okVp and vp then
+                    vp.BackgroundTransparency = 1
+                    vp.Ambient = Color3.new(1, 1, 1)
+                    vp.LightColor = Color3.new(1, 1, 1)
+                    vp.LightDirection = Vector3.new(-1, -1, -1)
+                    vp.Size = UDim2.new(1, -8, 0, 50)
+                    vp.Position = UDim2.new(0, 4, 0, 3)
+                    vp.Parent = cell
+
+                    local okClone, m = pcall(function() return cfg.Model:Clone() end)
+                    if okClone and m then
+                        for _, d in ipairs(m:GetDescendants()) do
+                            if d:IsA("Script") or d:IsA("LocalScript") then
+                                d:Destroy()
+                            elseif d:IsA("BasePart") then
+                                d.Anchored = true
+                                d.CanCollide = false
+                                d.CanQuery = false
+                                d.CanTouch = false
+                            end
+                        end
+                        if cfg.Scale and cfg.Scale > 0 then pcall(function() m:ScaleTo(cfg.Scale) end) end
+                        m.Parent = vp
+
+                        local okBox, cf0, size0 = pcall(function()
+                            local cf, sz = m:GetBoundingBox()
+                            return cf, sz
+                        end)
+                        local center = (okBox and cf0) and cf0.Position or Vector3.new()
+                        local maxDim = 10
+                        if okBox and size0 then maxDim = math.max(size0.X, size0.Y, size0.Z, 2) end
+                        local dist = maxDim * 0.82
+                        local cam = Instance.new("Camera")
+                        cam.FieldOfView = 50
+                        cam.CFrame = CFrame.lookAt(center + Vector3.new(dist * 0.72, dist * 0.42, -dist), center)
+                        cam.Parent = vp
+                        vp.CurrentCamera = cam
+                    end
+                end
+            end
+
+            local bar = Instance.new("Frame")
+            bar.Size = UDim2.new(1, -8, 0, 3)
+            bar.Position = UDim2.new(0, 4, 0, 54)
+            bar.BackgroundColor3 = RAR_COLOR[rar] or RAR_COLOR.Common
+            bar.BorderSizePixel = 0
+            bar.Parent = cell
+            Instance.new("UICorner", bar).CornerRadius = UDim.new(1, 0)
+
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(1, -8, 0, 16)
+            lbl.Position = UDim2.new(0, 4, 0, 58)
+            lbl.BackgroundTransparency = 1
+            lbl.Font = Enum.Font.GothamBold
+            lbl.TextSize = 8
+            lbl.TextColor3 = Colors.TextWhite
+            lbl.TextXAlignment = Enum.TextXAlignment.Left
+            lbl.TextTruncate = Enum.TextTruncate.AtEnd
+            lbl.Text = cn
+            lbl.Parent = cell
+
+            picks[name] = cell
+            cell.MouseButton1Click:Connect(function()
+                Config.RodSkinPick = name
+                highlightPick(name)
+                local eng = getgenv().HW_RodSkin
+                if eng then pcall(eng.Set, name) end
+                pcall(SaveProfile)
+            end)
+        end
+
+        highlightPick(Config.RodSkinPick or "Starlight Rod")
+    end
+
+    end
+
+    -- 控制台 / 其他脚本也能直接调
+    getgenv().HW_ApplyAll = applyLocalItems
+    getgenv().HW_ClearAll = clearLocalItems
+end
+
+-- ============================================================
+-- 鱼竿皮肤「原装实体化」v9（内嵌版，无自带面板）
+-- 资源全部来自游戏：
+--   模型  ReplicatedStorage.Model[皮肤名]
+--   握持  Info.Skin[皮肤名].Offset / Rotation / Color / Scale
+--   动画  ReplicatedStorage.Animations[皮肤名] → Idle / Throw / Waiting / Pull
+-- ============================================================
+-- ============================================================
+-- 鱼竿皮肤「原装实体化」v11（内嵌版：只搬逻辑/原理，UI 用主脚本「皮肤美化」页）
+-- 资源全部来自游戏：Model / Info.Skin / Animations / RodAura / Stick.SpecialModel
+-- ============================================================
+local function installRodSkinBeauty()
+    if game.PlaceId ~= 98502499119821 then return end
+    if not ReplicatedStorage:FindFirstChild("Info") then return end
+
+    local LP = LocalPlayer
+    local RS = ReplicatedStorage
+    local enabled = false
+    local mirrorBackup = {}
+
+    local function keepOld(obj)
+        if obj and mirrorBackup[obj] == nil then mirrorBackup[obj] = obj.Value end
+    end
+
+    local INFO   = RS:FindFirstChild("Info") and RS.Info:FindFirstChild("Skin")
+    local ANIMS  = RS:FindFirstChild("Animations")
+    local FOLDER = "__RodSkin"
+    local JOINT  = "__RodSkinJoint"
+    local OWNER  = "__RodSkinOwner"
+    local MY_ID  = tostring(math.floor(os.clock() * 1e6)) .. tostring(math.random(1000, 9999))
+
+    local currentSkin = Config.RodSkinPick or "Cursed Lantern Rod"
+
+    local state = { tracks = {}, hidden = {}, hideSet = {} }
+
+    -- 甩竿动作（脚本直接驱动，不依赖 Animator）
+    local USE_SWING = false   -- 测试：先关掉脚本甩竿，看游戏自带动画动不动
+    local SWING_TIME = 0.62      -- 整段时长
+    local SWING_BACK = -42       -- 后摆角度
+    local SWING_FWD  = 68        -- 前挥角度
+    local SWING_PEAK = 0.38      -- 后摆结束/前挥开始的进度
+
+    local function swingAngle(t)
+    	-- t: 0..1
+    	if t < SWING_PEAK then
+    		return math.rad(SWING_BACK) * (t / SWING_PEAK)
+    	end
+    	local k = (t - SWING_PEAK) / (1 - SWING_PEAK)
+    	return math.rad(SWING_BACK) + (math.rad(SWING_FWD) - math.rad(SWING_BACK)) * k
+    end
+
+    ------------------------------------------------------------
+    local function getConfig(name)
+    	local m = INFO and INFO:FindFirstChild(name)
+    	if not m then return nil end
+    	local ok, cfg = pcall(require, m)
+    	if not ok or type(cfg) ~= "table" then return nil end
+    	return cfg
+    end
+
+    local function listSkins()
+    	local t = {}
+    	if INFO then for _, v in ipairs(INFO:GetChildren()) do t[#t+1] = v.Name end end
+    	table.sort(t)
+    	return t
+    end
+
+    local function isOwner(char)
+    	return char and char:GetAttribute(OWNER) == MY_ID
+    end
+
+    -- 全部竿动画 ID（用来压掉"木竿"那套）
+    local ROD_ANIM = {}
+    if ANIMS then
+    	for _, f in ipairs(ANIMS:GetChildren()) do
+    		for _, a in ipairs(f:GetChildren()) do
+    			if a:IsA("Animation") then ROD_ANIM[a.AnimationId] = true end
+    		end
+    	end
+    end
+
+    ------------------------------------------------------------
+    local VFX_NAME = { vfx = true, effect = true, effects = true, fx = true, slash = true,
+    	circle = true, specs = true, spec = true, aura = true, glow = true, exp = true,
+    	wind = true, trace = true, spark = true, blink = true }
+
+    local function looksLikeVFX(d)
+    	local n = d.Name:lower()
+    	if VFX_NAME[n] then return true end
+    	if n:find("vfx") or n:find("slash") or n:find("effect") or n:find("specs") then return true end
+    	for _, c in ipairs(d:GetChildren()) do
+    		if c:IsA("ParticleEmitter") or c:IsA("Beam") or c:IsA("Trail") then return true end
+    	end
+    	return false
+    end
+
+    local function prepare(model)
+    	for _, d in ipairs(model:GetDescendants()) do
+    		if d:IsA("BasePart") then
+    			d.Anchored = false
+    			d.CanCollide = false
+    			d.CanQuery = false
+    			d.CanTouch = false
+    			d.Massless = true
+    		elseif d:IsA("Script") or d:IsA("LocalScript") then
+    			d:Destroy()
+    		end
+    	end
+    end
+
+    local function paint(model, color)
+    	if typeof(color) ~= "Color3" then return end
+    	local function one(inst)
+    		if inst:IsA("BasePart") and inst.Name == "Color" then
+    			inst.Color = color
+    		elseif inst:IsA("SpecialMesh") and (inst.Name == "Color" or (inst.Parent and inst.Parent.Name == "Color")) then
+    			inst.VertexColor = Vector3.new(color.R, color.G, color.B)
+    		elseif inst:IsA("ParticleEmitter") or inst:IsA("Beam") or inst:IsA("Trail") then
+    			inst.Color = ColorSequence.new(color)
+    		elseif inst:IsA("Light") then
+    			inst.Color = color
+    		end
+    	end
+    	one(model)
+    	for _, d in ipairs(model:GetDescendants()) do one(d) end
+    end
+
+
+    local function weldAll(rootPart, inst)
+    	if not (rootPart and rootPart:IsA("BasePart")) then return end
+    	for _, d in ipairs(inst:GetDescendants()) do
+    		if d:IsA("BasePart") and d ~= rootPart then
+    			local w = Instance.new("WeldConstraint")
+    			w.Part0, w.Part1, w.Parent = rootPart, d, d
+    		end
+    	end
+    end
+
+    ------------------------------------------------------------
+    local function stopTracks()
+    	for _, t in pairs(state.tracks or {}) do
+    		pcall(function() t:Stop(0.12) end)
+    	end
+    	state.mode = nil
+    end
+
+    local function playMode(name, looped, fade)
+    	local tracks = state.tracks or {}
+    	-- 有些皮肤没有 Idle（例如 Cryoflower Bloom），回退到 Waiting
+    	local actual = name
+    	if not tracks[actual] then
+    		if name == "Idle" and tracks.Waiting then actual = "Waiting" else return end
+    	end
+    	local t = tracks[actual]
+    	if state.mode == actual and t.IsPlaying then return end
+    	for k, other in pairs(tracks) do
+    		if k ~= actual and other.IsPlaying then pcall(function() other:Stop(fade or 0.15) end) end
+    	end
+    	t.Looped = looped and true or false
+    	pcall(function() t:Play(fade or 0.15) end)
+    	state.mode = actual
+    end
+
+    ------------------------------------------------------------
+    local function setAura(on)
+    	local aura = state.aura
+    	if not aura then return end
+    	if state.auraOn == on then return end
+    	state.auraOn = on
+    	for _, d in ipairs(aura:GetDescendants()) do
+    		if d:IsA("ParticleEmitter") then pcall(function() d.Enabled = on end) end
+    	end
+    end
+
+    local function unhide()
+    	for p, old in pairs(state.hidden) do
+    		if p and p.Parent then pcall(function() p.LocalTransparencyModifier = old end) end
+    	end
+    	state.hidden = {}
+    	state.hideSet = {}
+    end
+
+    local function despawn()
+    	stopTracks()
+    	if state.joint then state.joint:Destroy(); state.joint = nil end
+    	if state.model then state.model:Destroy(); state.model = nil end
+    	if state.hideConn then pcall(function() state.hideConn:Disconnect() end); state.hideConn = nil end
+    	if state.animConn then pcall(function() state.animConn:Disconnect() end); state.animConn = nil end
+    	if state.specialTrack then pcall(function() state.specialTrack:Stop(0) end); state.specialTrack = nil end
+    	state.smRoot, state.smRel = nil, nil
+    	state.handle, state.tool = nil, nil
+    	state.emitters, state.lights = nil, nil
+    	state.sound, state.aura, state.tipAtt = nil, nil, nil
+    	state.wasCast, state.wasMinigame = nil, nil
+    	state.swingStart, state.burstDone = nil, nil
+    	unhide()
+    end
+
+    ------------------------------------------------------------
+    local function spawn(char, tool, handle)
+    	despawn()
+    	local cfg = getConfig(currentSkin)
+    	if not cfg or not cfg.Model then return false end
+
+    	for _, c in ipairs(char:GetChildren()) do
+    		if c.Name == FOLDER then c:Destroy() end
+    	end
+
+    	local model = cfg.Model:Clone()
+    	model.Name = FOLDER
+    	prepare(model)
+    	-- 只有 ColorSystem == true 的皮肤游戏才会染色，其它皮肤保持原色
+    	if cfg.ColorSystem == true and cfg.Color then paint(model, cfg.Color) end
+    	if cfg.Scale and cfg.Scale > 0 then pcall(function() model:ScaleTo(cfg.Scale) end) end
+
+    	local mh = model:FindFirstChild("Handle")
+    	if not mh or not mh:IsA("BasePart") then model:Destroy(); return false end
+    	model.PrimaryPart = mh
+
+    	-- SpecialModel 的相对位姿（克隆后、进世界之前）
+    	local smRels = {}
+    	do
+    		local st = model:FindFirstChild("Stick")
+    		local sm = st and st:FindFirstChild("SpecialModel")
+    		if sm then
+    			for _, c in ipairs(sm:GetChildren()) do
+    				if c:IsA("BasePart") then smRels[c] = mh.CFrame:ToObjectSpace(c.CFrame) end
+    			end
+    		end
+    	end
+
+    	-- 焊死除 SpecialModel 内的所有部件
+    	for _, d in ipairs(model:GetDescendants()) do
+    		if d:IsA("BasePart") and d ~= mh then
+    			local inSpecial, p = false, d.Parent
+    			while p and p ~= model do
+    				if p.Name == "SpecialModel" then inSpecial = true break end
+    				p = p.Parent
+    			end
+    			if not inSpecial then
+    				local w = Instance.new("WeldConstraint")
+    				w.Part0, w.Part1, w.Parent = mh, d, d
+    			end
+    		end
+    	end
+
+    	model.Parent = char
+
+    	local joint = Instance.new("Motor6D")
+    	joint.Name = JOINT
+    	joint.Part0 = handle
+    	joint.Part1 = mh
+    	joint.C0 = CFrame.new()
+    	joint.C1 = CFrame.new()
+    	joint.Parent = handle
+
+    	state.model, state.joint, state.handle, state.tool = model, joint, handle, tool
+
+    	-- SpecialModel：锚定根 + 每帧跟随，内部交给 AnimationController
+    	do
+    		local st = model:FindFirstChild("Stick")
+    		local sm = st and st:FindFirstChild("SpecialModel")
+    		local root = sm and sm:FindFirstChild("HumanoidRootPart")
+    		if root and smRels[root] then
+    			root.Anchored = false
+    			root.CFrame = mh.CFrame * smRels[root]
+    			-- 摆正后再焊，焊约束会记住此刻的相对位姿
+    			local w = Instance.new("WeldConstraint")
+    			w.Part0, w.Part1, w.Parent = mh, root, root
+    			state.smRoot, state.smRel = nil, nil
+    			local ac = sm:FindFirstChildOfClass("AnimationController")
+    			if ac then
+    				local an = ac:FindFirstChildOfClass("Animator") or Instance.new("Animator", ac)
+    				local anim = ac:FindFirstChild("Anim")
+    				if anim and anim:IsA("Animation") then
+    					local ok, tr = pcall(function() return an:LoadAnimation(anim) end)
+    					if ok and tr then
+    						tr.Looped = true
+    						pcall(function() tr:Play() end)
+    						state.specialTrack = tr
+    					end
+    				end
+    			end
+    		end
+    	end
+
+    	-- 竿气场（RodAura）：每把竿都有一份，带 ray 粒子和技能特效件
+    	do
+    		local auraRoot = RS:FindFirstChild("RodAura")
+    		local aura = auraRoot and auraRoot:FindFirstChild(currentSkin)
+    		if aura then
+    			local ok, ac = pcall(function() return aura:Clone() end)
+    			if ok and ac then
+    				ac.Name = "__SkinAura"
+    				prepare(ac)
+    				-- 气场跟着"人"走，不挂竿上（挂竿上粒子会绕竿飘，很怪）
+    				local body = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+    				if ac:IsA("BasePart") and body then
+    					ac.Transparency = 1
+    					ac.CFrame = body.CFrame
+    					local w = Instance.new("WeldConstraint")
+    					w.Part0, w.Part1, w.Parent = body, ac, ac
+    				end
+    				weldAll(ac, ac)
+    				ac.Parent = model
+    				state.aura = ac
+    				state.auraOn = nil
+    				setAura(false)   -- 默认不亮，中鱼时才开
+    			end
+    		end
+    	end
+
+    	-- 这套皮肤的四段动画（Priority 用 Idle，和游戏原版一致）
+    	local af = ANIMS and ANIMS:FindFirstChild(currentSkin)
+    	local tracks, myIds = {}, {}
+    	if af then
+    		local hum = char:FindFirstChildOfClass("Humanoid")
+    		local animator = hum and hum:FindFirstChildOfClass("Animator")
+    		if animator then
+    			for _, nm in ipairs({ "Idle", "Throw", "Waiting", "Pull" }) do
+    				local a = af:FindFirstChild(nm)
+    				if a and a:IsA("Animation") then
+    					myIds[a.AnimationId] = true
+    					local ok, tr = pcall(function() return animator:LoadAnimation(a) end)
+    					if ok and tr then
+    						-- 必须高于角色自带动画，否则被 Idle/Fall 压成 50/50，看着就是"不动"。
+    						-- 跑动时脚本会把自己的轨道停掉，所以不会盖掉跑步动画。
+    						pcall(function() tr.Priority = Enum.AnimationPriority.Action4 end)
+    						tracks[nm] = tr
+    					end
+    				end
+    			end
+    		end
+    	end
+    	state.tracks, state.myIds = tracks, myIds
+
+    	-- 压掉"木竿那套"，即时生效
+    	if state.animConn then pcall(function() state.animConn:Disconnect() end) end
+    	local hum2 = char:FindFirstChildOfClass("Humanoid")
+    	local animator2 = hum2 and hum2:FindFirstChildOfClass("Animator")
+    	if animator2 then
+    		state.animConn = animator2.AnimationPlayed:Connect(function(track)
+    			if not isOwner(char) then return end
+    			local ok, id = pcall(function() return track.Animation and track.Animation.AnimationId end)
+    			if ok and id and ROD_ANIM[id] and not (state.myIds and state.myIds[id]) then
+    				pcall(function() track:Stop(0) end)
+    			end
+    		end)
+    	end
+
+    	playMode("Idle", true, 0)
+
+    	-- 隐藏真竿：只藏"竿身"，特效件留着（钓到鱼的特效就靠它们）
+    	-- 只在生成时记录一次"竿身部件名"，之后只隐藏同名的部件。
+    	-- 这样钓到鱼才亮起来的特效件（名字不同）不会被误伤。
+    	local hideNames = {}
+    	for _, d in ipairs(tool:GetDescendants()) do
+    		if d:IsA("BasePart") and d.Transparency < 1 and not looksLikeVFX(d) then
+    			hideNames[d.Name] = true
+    		end
+    	end
+
+    	local function hideOne(d)
+    		if not d:IsA("BasePart") then return end
+    		if not hideNames[d.Name] then return end
+    		if d.Transparency >= 1 then return end
+    		if state.hidden[d] == nil then
+    			state.hidden[d] = d.LocalTransparencyModifier
+    		end
+    		d.LocalTransparencyModifier = 1
+    		if not d:GetAttribute("__RodSkinWatch") then
+    			d:SetAttribute("__RodSkinWatch", true)
+    			d:GetPropertyChangedSignal("Transparency"):Connect(function()
+    				if d.Parent and hideNames[d.Name] and d.Transparency < 1 then
+    					d.LocalTransparencyModifier = 1
+    				end
+    			end)
+    		end
+    	end
+
+    	state.hideOne = hideOne
+    	state.tool = tool
+    	for _, d in ipairs(tool:GetDescendants()) do hideOne(d) end
+    	state.hideConn = tool.DescendantAdded:Connect(hideOne)
+
+    	-- 钓线从皮肤自己的竿尖出发
+    	local rj = model:FindFirstChild("RopeJoint")
+    	state.tipAtt = rj and rj:FindFirstChild("Attachment") or nil
+
+    	-- 专属特效件（音效 + 粒子）
+    	local slashSrc = af and af:FindFirstChild("Slash")
+    	if slashSrc then
+    		local ok, clone = pcall(function() return slashSrc:Clone() end)
+    		if ok and clone then
+    			clone.Name = "__SkinSlashFX"
+    			prepare(clone)
+    			if clone:IsA("BasePart") then clone.Transparency = 1 end
+    			-- 同样绑到人身上（绑竿上喷出来的粒子会绕竿飞，很怪）
+    			local body = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+    			if body and clone:IsA("BasePart") then
+    				clone.CFrame = body.CFrame
+    			end
+    			local w = Instance.new("Weld")
+    			w.Part0, w.Part1, w.C0 = body or mh, clone, CFrame.new()
+    			w.Parent = clone
+    			-- 常开的话竿上会一直冒粒子（就是"特效跟着鱼竿很怪"），
+    			-- 关掉常驻，只在本脚本 Emit 时喷
+    			for _, d in ipairs(clone:GetDescendants()) do
+    				if d:IsA("ParticleEmitter") then d.Enabled = false end
+    			end
+    			weldAll(clone, clone)
+    			clone.Parent = model
+    			for _, d in ipairs(clone:GetDescendants()) do
+    				if d:IsA("Sound") and d.Name == "SlashSound" then state.sound = d end
+    			end
+    		end
+    	end
+
+    	local emitters, lights = {}, {}
+    	for _, d in ipairs(model:GetDescendants()) do
+    		if d:IsA("ParticleEmitter") then emitters[#emitters+1] = d
+    		elseif d:IsA("Light") then lights[#lights+1] = d end
+    	end
+    	state.emitters, state.lights = emitters, lights
+
+    	return true
+    end
+
+
+    ------------------------------------------------------------
+    -- 背包/图鉴镜像
+    ------------------------------------------------------------
+    local mirrorAcc = 0
+    local function mirror()
+    	local me = RS:FindFirstChild("Data") and RS.Data:FindFirstChild(tostring(LP.UserId))
+    	if not me then return end
+    	local rodName = me:FindFirstChild("FishingRod") and me.FishingRod.Value or nil
+    	local inv = me:FindFirstChild("FishingRodInventory")
+    	local rod = rodName and inv and inv:FindFirstChild(rodName)
+    	if rod then
+    		local sv = rod:FindFirstChild("Skin")
+    		if sv and sv:IsA("StringValue") and sv.Value ~= currentSkin then
+    			keepOld(sv); sv.Value = currentSkin
+    		end
+    	end
+    	local own = me:FindFirstChild("RodSkin") and me.RodSkin:FindFirstChild(currentSkin)
+    	if own and own:IsA("BoolValue") and not own.Value then keepOld(own); own.Value = true end
+    	local cnt = me:FindFirstChild("RodSkinCount") and me.RodSkinCount:FindFirstChild(currentSkin)
+    	if cnt and cnt:IsA("ValueBase") and type(cnt.Value) == "number" and cnt.Value < 1 then keepOld(cnt); cnt.Value = 1 end
+    end
+
+    ------------------------------------------------------------
+    local function tick(char)
+    	local now = os.clock()
+    	local tool = char:FindFirstChild("Tool")
+    	local handle = tool and tool:FindFirstChild("Handle")
+    	if not (handle and handle:IsA("BasePart")) then
+    		if state.model then despawn() end
+    		return
+    	end
+
+    	if state.model and state.model.Parent and state.joint and state.handle and state.handle ~= handle then
+    		local ok = pcall(function()
+    			state.joint.Part0 = handle
+    			state.joint.C0 = CFrame.new()
+    		end)
+    		if ok then state.handle, state.tool = handle, tool end
+    	elseif not state.model or not state.model.Parent then
+    		pcall(spawn, char, tool, handle)
+    		if not state.model then return end
+    	end
+
+    	-- 每帧：SpecialModel 跟随 + 钓线起点 + 隐藏
+    	-- 周期性重新隐藏：有些部件是"后来才变可见"的，只在生成时扫一次会漏
+    	state.hideAcc = (state.hideAcc or 0) + 0.06
+    	if state.hideAcc > 0.12 and state.hideOne then
+    		state.hideAcc = 0
+    		for _, d in ipairs(tool:GetDescendants()) do pcall(state.hideOne, d) end
+    	end
+
+    	-- 服务器换过 Tool 实例：重挂隐藏钩子（否则新竿整根可见）
+    	if state.tool ~= tool and state.hideOne then
+    		if state.hideConn then pcall(function() state.hideConn:Disconnect() end) end
+    		state.tool = tool
+    		for _, d in ipairs(tool:GetDescendants()) do pcall(state.hideOne, d) end
+    		state.hideConn = tool.DescendantAdded:Connect(state.hideOne)
+    	end
+
+    	if state.joint then
+    		local t = nil
+    		if state.swingStart then
+    			t = (now - state.swingStart) / SWING_TIME
+    			if t >= 1 then
+    				state.swingStart = nil
+    				t = nil
+    			end
+    		end
+    		local c0
+    		if t and USE_SWING then
+    			c0 = CFrame.Angles(0, 0, swingAngle(t))
+    		else
+    			-- 待机不写 C0：16Hz 抖动比不动更难看，动作交给原版动画
+    			c0 = CFrame.new()
+    		end
+    		pcall(function() state.joint.C0 = c0 end)
+    	end
+    	-- 前挥瞬间：粒子爆发 + 专属音效
+    	if state.swingStart and not state.burstDone then
+    		local t = (now - state.swingStart) / SWING_TIME
+    		if t >= SWING_PEAK then
+    			state.burstDone = true
+    			pcall(function()
+    				for _, pe in ipairs(state.emitters or {}) do pe:Emit(6) end
+    				if state.sound then
+    					local snd = state.sound:Clone()
+    					snd.Parent = state.model
+    					snd:Play()
+    					task.delay(4, function() if snd then snd:Destroy() end end)
+    				end
+    			end)
+    		end
+    	elseif not state.swingStart then
+    		state.burstDone = false
+    	end
+
+
+    	if state.tipAtt and state.tipAtt.Parent then
+    		for _, d in ipairs(tool:GetDescendants()) do
+    			if d:IsA("Beam") and d.Attachment0 and d.Attachment0:IsDescendantOf(tool) then
+    				if d.Attachment0 ~= state.tipAtt then pcall(function() d.Attachment0 = state.tipAtt end) end
+    			end
+    		end
+    	end
+
+    	-- 背包镜像（0.5 秒一次）
+    	mirrorAcc = mirrorAcc + 0.06
+    	if mirrorAcc > 0.5 then
+    		mirrorAcc = 0
+    		pcall(mirror)
+    	end
+
+    	-- 动画状态机
+    	local hum = char:FindFirstChildOfClass("Humanoid")
+    	local moving = hum and hum.MoveDirection.Magnitude > 0.05
+    	local fishing = char:GetAttribute("Fishing") == true
+    	local minigame = char:GetAttribute("Minigame") == true
+    	local throwing = char:GetAttribute("CDForTheNextThrow") == true
+
+    	-- 气场：进小游戏（摆收竿姿势）时开启，结束后 2.5 秒关
+    	if minigame then
+    		state.auraUntil = now + 2.5
+    		setAura(true)
+    	elseif now > (state.auraUntil or 0) then
+    		setAura(false)
+    	end
+
+    	-- 中鱼结算：小游戏结束的瞬间放这套皮肤的粒子爆发 + 音效
+    	if state.wasMinigame and not minigame then
+    		pcall(function()
+    			for _, pe in ipairs(state.emitters or {}) do
+    				pcall(function() pe:Emit(18) end)
+    			end
+    			for _, l in ipairs(state.lights or {}) do
+    				local base = l.Brightness
+    				l.Brightness = base + 10
+    				task.delay(0.45, function() if l and l.Parent then l.Brightness = base end end)
+    			end
+    			if state.sound then
+    				local snd = state.sound:Clone()
+    				snd.Parent = state.model
+    				snd:Play()
+    				task.delay(4, function() if snd then snd:Destroy() end end)
+    			end
+    		end)
+    	end
+    	state.wasMinigame = minigame
+
+    	if (fishing or throwing) and not state.wasCast then
+    		if state.tracks.Throw then
+    			state.tracks.Throw.Looped = false
+    			pcall(function() state.tracks.Throw:Play(0.05) end)
+    			state.mode = "Throwing"
+    			state.lockUntil = now + math.min(3, (state.tracks.Throw.Length or 0.8))
+    			state.swingStart = now
+    			state.waitUntil = state.lockUntil + 2.5
+    		end
+    	end
+    	state.wasCast = fishing or throwing
+
+    	if moving then
+    		if state.mode ~= nil then stopTracks() end
+    	elseif state.mode == "Throwing" and now < (state.lockUntil or 0) then
+    		-- 抛竿进行中，不切换
+    	elseif minigame then
+    		playMode("Pull", true, 0.15)
+    	elseif fishing or now < (state.waitUntil or 0) then
+    		playMode("Waiting", true, 0.18)
+    	else
+    		playMode("Idle", true, 0.2)
+    	end
+    end
+
+    ------------------------------------------------------------
+    local function onChar(char)
+    	char:SetAttribute(OWNER, MY_ID)
+    	for _, c in ipairs(char:GetChildren()) do
+    		if c.Name == FOLDER then c:Destroy() end
+    	end
+    	despawn()
+    	state.char = char
+
+    	-- 装载时清掉所有残留的竿动画轨道
+    	local hum0 = char:FindFirstChildOfClass("Humanoid")
+    	local an0 = hum0 and hum0:FindFirstChildOfClass("Animator")
+    	if an0 then
+    		for _, tr in ipairs(an0:GetPlayingAnimationTracks()) do
+    			local ok, id = pcall(function() return tr.Animation and tr.Animation.AnimationId end)
+    			if ok and id and ROD_ANIM[id] then pcall(function() tr:Stop(0) end) end
+    		end
+    	end
+
+    	local acc = 0
+    	local beat
+    	beat = RunService.Heartbeat:Connect(function(dt)
+    		if not enabled then beat:Disconnect(); return end
+    		if not char.Parent then beat:Disconnect(); return end
+    		if not isOwner(char) then
+    			beat:Disconnect()
+    			pcall(despawn)     -- 停掉自己的动画轨道、销毁自己的模型，避免残留
+    			return
+    		end
+    		acc = acc + dt
+    		if acc < 0.06 then return end
+    		acc = 0
+    		pcall(tick, char)
+    	end)
+    	pcall(tick, char)
+    end
+
+    ------------------------------------------------------------
+    local function set(name)
+    	if not getConfig(name) then return false end
+    	currentSkin = name
+    	Config.RodSkinPick = name
+    	if not enabled then return true end
+    	local c = LP.Character
+    	state.handle = nil
+    	if c then
+    		local tool = c:FindFirstChild("Tool")
+    		local h = tool and tool:FindFirstChild("Handle")
+    		if h then pcall(spawn, c, tool, h) end
+    	end
+    	return true
+    end
+
+    ------------------------------------------------------------
+    -- 背包 / 图鉴的 3D 预览替换（v11 源码里没带，保留我们自己的）
+    ------------------------------------------------------------
+    local TAG = "__SkinPreview"
+    local previewHidden, previewAcc = {}, 0
+
+    local function fitClone(src, target)
+        local clone = src:Clone()
+        clone.Name = TAG
+        prepare(clone)
+        local oe, ce = target:GetExtentsSize(), clone:GetExtentsSize()
+        local a = math.max(oe.X, oe.Y, oe.Z)
+        local b = math.max(ce.X, ce.Y, ce.Z)
+        if b > 0.01 and a > 0.01 then pcall(function() clone:ScaleTo(a / b) end) end
+        pcall(function() clone:PivotTo(target:GetPivot()) end)
+        return clone
+    end
+
+    local function beautifyPreviews()
+        local me = ReplicatedStorage:FindFirstChild("Data")
+        me = me and me:FindFirstChild(tostring(LocalPlayer.UserId))
+        if not me then return end
+        local rodName = me:FindFirstChild("FishingRod") and me.FishingRod.Value or nil
+        if not rodName then return end
+        local cfg = getConfig(currentSkin)
+        if not cfg or not cfg.Model then return end
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        if not pg then return end
+        for _, wm in ipairs(pg:GetDescendants()) do
+            if wm:IsA("WorldModel") and not wm:FindFirstChild(TAG) then
+                local orig = wm:FindFirstChild(rodName)
+                if orig and orig:IsA("Model") then
+                    local ok, clone = pcall(fitClone, cfg.Model, orig)
+                    if ok and clone then
+                        for _, d in ipairs(orig:GetDescendants()) do
+                            if d:IsA("BasePart") and d.Transparency < 1 then
+                                if previewHidden[d] == nil then previewHidden[d] = d.Transparency end
+                                d.Transparency = 1
+                            end
+                        end
+                        clone.Parent = wm
+                    end
+                end
+            end
+        end
+    end
+
+    local function restorePreviews()
+        for part, old in pairs(previewHidden) do
+            pcall(function() if part and part.Parent then part.Transparency = old end end)
+        end
+        previewHidden = {}
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        if pg then
+            for _, d in ipairs(pg:GetDescendants()) do
+                if d.Name == TAG and d:IsA("Model") then pcall(function() d:Destroy() end) end
+            end
+        end
+    end
+
+    local function restoreMirror()
+        for obj, old in pairs(mirrorBackup) do
+            pcall(function() if obj and obj.Parent then obj.Value = old end end)
+        end
+        mirrorBackup = {}
+    end
+
+    table.insert(activeConnections, RunService.Heartbeat:Connect(function(dt)
+        if not enabled then return end
+        previewAcc = previewAcc + dt
+        if previewAcc < 1.5 then return end
+        previewAcc = 0
+        pcall(beautifyPreviews)
+    end))
+
+    ------------------------------------------------------------
+    -- 开关
+    ------------------------------------------------------------
+    local function Start()
+        if enabled then return end
+        enabled = true
+        local c = LocalPlayer.Character
+        if c then pcall(onChar, c) end
+    end
+
+    local function Stop()
+        enabled = false
+        pcall(despawn)
+        local c = state.char or LocalPlayer.Character
+        if c then
+            for _, ch in ipairs(c:GetChildren()) do
+                if ch.Name == FOLDER then pcall(function() ch:Destroy() end) end
+            end
+        end
+        pcall(restorePreviews)
+        pcall(restoreMirror)
+    end
+
+    table.insert(activeConnections, LocalPlayer.CharacterAdded:Connect(function(c)
+        if not enabled then return end
+        task.wait(1.0)
+        if enabled then pcall(onChar, c) end
+    end))
+
+    getgenv().HW_RodSkin = {
+        Enable = function(v) if v then Start() else Stop() end end,
+        Set = set,
+        List = listSkins,
+        Info = getConfig,
+    }
+
+    if Config.RodSkinBeauty then Start() end
+end
+installRodSkinBeauty()
+installLocalItemsPage()
