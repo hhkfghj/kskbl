@@ -179,8 +179,11 @@ if hookmetamethod and newcclosure then
             local fmRemote = Events and Events:FindFirstChild("FishingMinigame")
             local oldNamecall
             oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
-                local method = getnamecallmethod()
-                if (self == fmRemote or (typeof(self) == "Instance" and self.Name == "FishingMinigame")) and method == "FireServer" and not checkcaller() then
+                -- 热路径：全客户端每一次 :方法() 都会进这里，越快越好。
+                -- 原来的 `typeof(self)=="Instance" and self.Name=="FishingMinigame"` 兜底
+                -- 会让每一次 namecall 都多一次 typeof + 属性读取（等于钩子开销翻倍）。
+                -- fmRemote 挂钩时就已解析好，身份比较足够。
+                if self == fmRemote and getnamecallmethod() == "FireServer" and not checkcaller() then
                     if isRunning and Config and Config.AnchorBar then
                         local args = {...}
                         local action = tostring(args[1])
@@ -699,6 +702,11 @@ local function UnloadScript()
         if type(restoreFake) == "function" then pcall(restoreFake) end
         getgenv().IdenticalHeavyweightFakeRestore = nil
     end
+    -- 先关掉皮肤美化：销毁 __RodSkin、还原被镜像的背包/图鉴数值（否则重注入会留一地残骸）
+    pcall(function()
+        local eng = getgenv and getgenv() and getgenv().HW_RodSkin
+        if eng and type(eng.Enable) == "function" then eng.Enable(false) end
+    end)
     for _, conn in ipairs(activeConnections) do pcall(function() conn:Disconnect() end) end
     table.clear(activeConnections)
     
@@ -719,7 +727,7 @@ local function UnloadScript()
         if hum then hum.WalkSpeed = 16 end
         Lighting.FogEnd = 100000
         Lighting.Brightness = 2
-        Lighting.ClockTime = 14
+        -- 不要在这里写 ClockTime：昼夜循环是游戏自己在跑的，写死时间会造成明暗闪烁
         Lighting.Ambient = Color3.fromRGB(70, 70, 70)
         Lighting.OutdoorAmbient = Color3.fromRGB(70, 70, 70)
         Lighting.GlobalShadows = true
@@ -1549,29 +1557,31 @@ do
         return false
     end
 
+    -- 这个键位到底有没有装技能：游戏在开小游戏时会把空技能栏 TextButton.Visible = false。
+    -- 看不到按钮时返回 true（UI 重建/HUD 未就绪时不要卡死连招）。
+    function comboState.CanCast(key, fUI)
+        local btn = comboState.GetSkillButton(key, fUI)
+        if not btn then return true end
+        return btn.Visible == true
+    end
+
     function comboState.CastSkill(key, fUI)
         key = tostring(key or ""):upper()
         if not key:match("^[ZXCV]$") then return false end
 
-        -- 通道 1：RemoteEvent
-        if Events then
-            local useEv = Events:FindFirstChild("UseSkill")
-            if useEv then
-                pcall(function() useEv:FireServer(key) end)
-            end
-            local trigEv = Events:FindFirstChild("TriggerMinigameSkill")
-            if trigEv then
-                pcall(function() trigEv:FireServer(key) end)
-            end
-        end
-
-        -- 通道 2：VirtualInputManager 模拟按键
+        -- 只走「真实按键」这一条通道。
+        -- 实测 Delta/Android 上 SendKeyEvent(true, KeyCode, false, game) 能真正送到
+        -- UserInputService.InputBegan，游戏自己的处理函数会走完整流程（技能锁/冷却/眩晕
+        -- 判定都在游戏里，最稳）。
+        -- 原版同时用了 3 条通道（FireServer + 按键 + 点按钮），等于一次决策触发 2~3 次
+        -- 技能，服务端通常会吞掉后面几次，看起来就像「连招用不了」。
+        local sent = false
         if VirtualInputManager then
             local keyCode = Enum.KeyCode[key]
             if keyCode then
-                pcall(function()
+                sent = pcall(function()
                     VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
-                    task.delay(0.02, function()
+                    task.delay(0.03, function()
                         pcall(function()
                             VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
                         end)
@@ -1579,30 +1589,11 @@ do
                 end)
             end
         end
-
-        -- 通道 3：点击技能按钮
-        local btn = comboState.GetSkillButton(key, fUI)
-        if btn and btn:IsA("GuiButton") and btn.Visible then
-            pcall(function()
-                if firesignal then
-                    if btn.Activated then firesignal(btn.Activated) end
-                    if btn.MouseButton1Click then firesignal(btn.MouseButton1Click) end
-                end
-                if getconnections then
-                    local ok1, conns1 = pcall(getconnections, btn.Activated)
-                    if ok1 and type(conns1) == "table" then
-                        for _, c in ipairs(conns1) do
-                            pcall(function() c:Fire() end)
-                        end
-                    end
-                    local ok2, conns2 = pcall(getconnections, btn.MouseButton1Click)
-                    if ok2 and type(conns2) == "table" then
-                        for _, c in ipairs(conns2) do
-                            pcall(function() c:Fire() end)
-                        end
-                    end
-                end
-            end)
+        if not sent and Events then
+            local useEv = Events:FindFirstChild("UseSkill")
+            if useEv then
+                sent = pcall(function() useEv:FireServer(key) end)
+            end
         end
 
         comboState.usedTimes[key] = tick()
@@ -1643,6 +1634,17 @@ do
         if fishID and fishesFolder then
             local f = fishesFolder:FindFirstChild(fishID)
             if f then
+                -- 游戏里的真实血量：鱼模型上的 MaxHealth 属性 = 总血，子节点 Value = 已掉的血。
+                -- 原版只找 FishHealth/Health 子节点，永远找不到 -> 一律 return 10，
+                -- 于是「>阈值」的起手/循环连招永远进不去，只能反复按快速捕杀技能。
+                local maxHpA = f:GetAttribute("MaxHealth")
+                local dmgV = f:FindFirstChild("Value")
+                if dmgV and type(dmgV.Value) == "number" then
+                    if type(maxHpA) == "number" and maxHpA > 0 then
+                        return math.max(0, maxHpA - dmgV.Value)
+                    end
+                    return dmgV.Value
+                end
                 local hpVal = f:FindFirstChild("FishHealth") or f:FindFirstChild("Health")
                 if hpVal and (hpVal:IsA("NumberValue") or hpVal:IsA("IntValue")) and hpVal.Value > 0 then
                     return hpVal.Value
@@ -1792,10 +1794,18 @@ do
         if not Config.SmartComboEnabled then
             if Config.AutoSkills and (now - (comboState.legacyLastSkillTime or 0) >= comboState.legacySkillInterval) then
                 local keys = comboState.legacySkillKeys
-                local key = keys[comboState.legacySkillIdx]
-                comboState.CastSkill(key, fUI)
-                comboState.legacySkillIdx = comboState.legacySkillIdx % #keys + 1
-                comboState.legacyLastSkillTime = now
+                -- 原版是「不管有没有技能、不管冷没冷却，每 0.15 秒硬按一个键」。
+                -- 空技能栏（游戏会把按钮设成不可见）会让它对着空气狂发按键，
+                -- 看起来就像「连招没反应」。这里改成只按真正装了的、没冷却的技能。
+                for _ = 1, #keys do
+                    local key = keys[comboState.legacySkillIdx]
+                    comboState.legacySkillIdx = comboState.legacySkillIdx % #keys + 1
+                    if comboState.CanCast(key, fUI) and not comboState.IsSkillOnCooldown(key, fUI) then
+                        comboState.CastSkill(key, fUI)
+                        comboState.legacyLastSkillTime = now
+                        break
+                    end
+                end
             end
             return
         end
@@ -1818,7 +1828,7 @@ do
             if healKey then
                 healKey = healKey:upper()
                 if playerHp <= (tonumber(Config.EmergencyHealHp) or 40) then
-                    if not comboState.IsSkillOnCooldown(healKey, fUI) then
+                    if comboState.CanCast(healKey, fUI) and not comboState.IsSkillOnCooldown(healKey, fUI) then
                         comboState.CastSkill(healKey, fUI)
                         return
                     end
@@ -1836,7 +1846,7 @@ do
                 local qk = tostring(quick):match("([ZXCVzxcv])")
                 if qk then
                     qk = qk:upper()
-                    if not comboState.IsSkillOnCooldown(qk, fUI) then
+                    if comboState.CanCast(qk, fUI) and not comboState.IsSkillOnCooldown(qk, fUI) then
                         comboState.CastSkill(qk, fUI)
                     end
                 end
@@ -1856,7 +1866,7 @@ do
                     local ok = tostring(opener):match("([ZXCVzxcv])")
                     if ok then
                         local k = ok:upper()
-                        if not comboState.IsSkillOnCooldown(k, fUI) then
+                        if comboState.CanCast(k, fUI) and not comboState.IsSkillOnCooldown(k, fUI) then
                             if comboState.CastSkill(k, fUI) then
                                 comboState.openerUsedCount = comboState.openerUsedCount + 1
                                 if comboState.openerUsedCount >= maxCount then
@@ -1886,7 +1896,7 @@ do
                 local fk = tostring(fallback):match("([ZXCVzxcv])")
                 if fk then
                     fk = fk:upper()
-                    if not comboState.IsSkillOnCooldown(fk, fUI) then
+                    if comboState.CanCast(fk, fUI) and not comboState.IsSkillOnCooldown(fk, fUI) then
                         comboState.CastSkill(fk, fUI)
                     end
                 end
@@ -1908,7 +1918,7 @@ do
             targetKey = loopKeys[comboState.loopTargetIndex]
         end
 
-        if not comboState.IsSkillOnCooldown(targetKey, fUI) then
+        if comboState.CanCast(targetKey, fUI) and not comboState.IsSkillOnCooldown(targetKey, fUI) then
             if comboState.CastSkill(targetKey, fUI) then
                 local capturedIndex = comboState.loopTargetIndex
                 task.delay(0.08, function()
@@ -1930,7 +1940,7 @@ do
                 for offset = 1, #loopKeys - 1 do
                     local idx = ((comboState.loopTargetIndex - 1 + offset) % #loopKeys) + 1
                     local sk = loopKeys[idx]
-                    if not comboState.IsSkillOnCooldown(sk, fUI) then
+                    if comboState.CanCast(sk, fUI) and not comboState.IsSkillOnCooldown(sk, fUI) then
                         if comboState.CastSkill(sk, fUI) then
                             comboState.loopTargetIndex = idx % #loopKeys + 1
                             comboState.lastCastingKey = sk
@@ -7359,7 +7369,7 @@ do
     for i = 1, N do sT[i] = 0; sDx[i] = 0 end
     local sCnt, sHead = 0, 0
 
-    local armed, lastClick, prevT, lastDx = true, 0, nil, nil
+    local armed, lastClick, prevT, lastDx, lastV = true, 0, nil, nil, nil
 
     -- UI 引用只解析一次，之后只在实例失效时重解析（原来每帧链式 FindFirstChild）
     local pg, mainGui, fishing, bossBar, hitBox, barObj
@@ -7374,27 +7384,19 @@ do
     end
     ResolveUI()
 
+    -- 点击注入。
+    -- 实测（Delta / Android 16）：SendTouchEvent 不报错，但 UserInputService.InputBegan
+    -- 一次都不会触发 —— 游戏根本收不到，而 pcall 成功又会直接 return，
+    -- 于是永远走不到鼠标兜底，表现就是「自动恩佐小游戏完全不动」。
+    -- 鼠标通道实测可用（InputBegan 约 2ms 后收到 MouseButton1）。
+    -- 坐标用左上角死角：游戏的判定只读 UserInputType，和坐标无关，
+    -- 用 (2,2) 可以避免误触到游戏 UI 上的按钮。
     local function Click()
-        local cam = Workspace.CurrentCamera
-        local vp = (cam and cam.ViewportSize) or Vector2.new(1024, 768)
-        local x = math.floor(vp.X * 0.5)
-        local y = math.floor(vp.Y * 0.5)
-        if isMobile and VIM then
-            -- 注意：SendTouchEvent 第 4 个参数必须是数字，传 game 会直接抛错（之前一直走的是鼠标路径）
-            if pcall(function()
-                VIM:SendTouchEvent(x, y, true, 1)
-                task.wait(0.012)
-                VIM:SendTouchEvent(x, y, false, 1)
-            end) then return true end
-        end
-        if VIM then
-            if pcall(function()
-                VIM:SendMouseButtonEvent(x, y, 0, true, game, 1)
-                task.wait(0.012)
-                VIM:SendMouseButtonEvent(x, y, 0, false, game, 1)
-            end) then return true end
-        end
-        return false
+        if not VIM then return false end
+        return pcall(function()
+            VIM:SendMouseButtonEvent(2, 2, 0, true, game, 1)
+            VIM:SendMouseButtonEvent(2, 2, 0, false, game, 1)
+        end)
     end
 
     -- Heartbeat 而不是 RenderStepped：不占渲染帧，卡顿感主要来自这里
@@ -7451,6 +7453,15 @@ do
             if math.abs(v) > 4000 then v = 0 end   -- 瞬移造成的假速度，丢掉
         end
 
+        -- 三角波折返那一帧：最小二乘拟合出来的速度会滞后（还带着旧方向），
+        -- 拿它预测会落在判定区边缘（实测偏差能到 10px）。这里直接丢一帧重新采样。
+        if lastV and v * lastV < -1 then
+            sCnt = 0
+            lastV = v
+            return
+        end
+        lastV = v
+
         -- 瞬移（换轮/换判定区）：清空采样，别拿跳变算速度
         if lastDx and math.abs(dx - lastDx) > 40 then
             sCnt = 0
@@ -7482,7 +7493,7 @@ do
         -- 速度还不够稳（刚从换轮重置过来）时只用半个窗口，稳了再用 3/4 窗口；
         -- 都不打满窗口，给预测误差留余量
         local winF = 0.5
-        if sCnt >= 3 and math.abs(v) > 50 then winF = 0.75 end
+        if sCnt >= 4 and math.abs(v) > 50 then winF = 0.7 end
         local fire = math.abs(pred) <= halfWin * winF
         if not fire and math.abs(v) > 50 and math.abs(dx) <= halfWin * 3 then
             -- 也可以等"中心重合"那一帧：理想按下时刻 = -dx/v - lead
@@ -8404,6 +8415,8 @@ end)
 
 -- 主渲染循环：更新所有 ESP 与鱼圈（10Hz 节流，避免每帧扫描造成手机内存/CPU 压力）
 local lastRingUpdate = 0
+-- 无雾无雨：相机下的粒子（天气 VFX）列表缓存，1 秒刷新一次
+local noFogCamCache, noFogCamAcc = {}, 0
 table.insert(activeConnections, RunService.RenderStepped:Connect(function()
     if not isRunning then return end
     local ringNow = tick()
@@ -8422,13 +8435,16 @@ table.insert(activeConnections, RunService.RenderStepped:Connect(function()
     end
 
     -- 全亮 / 去雾处理
+    -- 注意：绝对不要在这里写 Lighting.ClockTime。
+    -- 游戏客户端自己在跑昼夜循环（ClockTime 每帧递增），脚本每 0.1 秒把它改回 14
+    -- 会让画面在「白天」和「当前时刻」之间来回跳 —— 就是用户说的「光亮一直闪」。
+    -- 只改 Ambient/Brightness/Fog 这些游戏不会每帧覆写的属性，并做差值判断减少写入。
     if Config.Fullbright then
-        Lighting.Brightness = 2.5
-        Lighting.ClockTime = 14
-        Lighting.FogEnd = 1000000
-        Lighting.GlobalShadows = false
-        Lighting.Ambient = Color3.fromRGB(180, 180, 180)
-        Lighting.OutdoorAmbient = Color3.fromRGB(180, 180, 180)
+        if Lighting.Brightness ~= 2.5 then Lighting.Brightness = 2.5 end
+        if Lighting.FogEnd ~= 1000000 then Lighting.FogEnd = 1000000 end
+        if Lighting.GlobalShadows then Lighting.GlobalShadows = false end
+        if Lighting.Ambient ~= Color3.fromRGB(180, 180, 180) then Lighting.Ambient = Color3.fromRGB(180, 180, 180) end
+        if Lighting.OutdoorAmbient ~= Color3.fromRGB(180, 180, 180) then Lighting.OutdoorAmbient = Color3.fromRGB(180, 180, 180) end
     end
     if Config.NoFog then
         Lighting.FogEnd = 1000000
@@ -8439,10 +8455,17 @@ table.insert(activeConnections, RunService.RenderStepped:Connect(function()
             atmo.Haze = 0
             atmo.Glare = 0
         end
-        for _, d in ipairs(Camera:GetDescendants()) do
-            if d:IsA("ParticleEmitter") and d.Enabled then
-                d.Enabled = false
+        -- 本循环被节流在 10Hz，每帧固定 ~0.1s
+        noFogCamAcc = noFogCamAcc + 0.1
+        if noFogCamAcc >= 1.0 or #noFogCamCache == 0 then
+            noFogCamAcc = 0
+            noFogCamCache = {}
+            for _, d in ipairs(Camera:GetDescendants()) do
+                if d:IsA("ParticleEmitter") then noFogCamCache[#noFogCamCache + 1] = d end
             end
+        end
+        for _, pe in ipairs(noFogCamCache) do
+            if pe.Parent and pe.Enabled then pe.Enabled = false end
         end
     end
 
@@ -9112,6 +9135,7 @@ local function installLocalItemsPage()
             Secret = Color3.fromRGB(255, 86, 120),
         }
 
+        local previewJobs = {}
         for i, entry in ipairs(entries) do
             local name, rar, cn = entry.name, entry.rar, entry.cn
             local okCfg, cfg = pcall(require, skinInfo:FindFirstChild(name))
@@ -9131,48 +9155,12 @@ local function installLocalItemsPage()
             st.Thickness = 1
             st.Parent = cell
 
-            -- 模型预览：自己搭 ViewportFrame（不依赖游戏里的模板）
+            -- 模型预览：延迟到这个页面真正被打开时才建。
+            -- 40 个 ViewportFrame = 40 份皮肤模型（约 2600 个实例）+ 40 台相机常驻；
+            -- 以前脚本一注入就全建好，挂机钓鱼时它们一直占着内存和 GPU
+            --（「开着美化钓一会儿就闪退」的嫌疑之一）。现在页面关着 = 一个都不存在。
             if okCfg and type(cfg) == "table" and cfg.Model then
-                local okVp, vp = pcall(Instance.new, "ViewportFrame")
-                if okVp and vp then
-                    vp.BackgroundTransparency = 1
-                    vp.Ambient = Color3.new(1, 1, 1)
-                    vp.LightColor = Color3.new(1, 1, 1)
-                    vp.LightDirection = Vector3.new(-1, -1, -1)
-                    vp.Size = UDim2.new(1, -8, 0, 50)
-                    vp.Position = UDim2.new(0, 4, 0, 3)
-                    vp.Parent = cell
-
-                    local okClone, m = pcall(function() return cfg.Model:Clone() end)
-                    if okClone and m then
-                        for _, d in ipairs(m:GetDescendants()) do
-                            if d:IsA("Script") or d:IsA("LocalScript") then
-                                d:Destroy()
-                            elseif d:IsA("BasePart") then
-                                d.Anchored = true
-                                d.CanCollide = false
-                                d.CanQuery = false
-                                d.CanTouch = false
-                            end
-                        end
-                        if cfg.Scale and cfg.Scale > 0 then pcall(function() m:ScaleTo(cfg.Scale) end) end
-                        m.Parent = vp
-
-                        local okBox, cf0, size0 = pcall(function()
-                            local cf, sz = m:GetBoundingBox()
-                            return cf, sz
-                        end)
-                        local center = (okBox and cf0) and cf0.Position or Vector3.new()
-                        local maxDim = 10
-                        if okBox and size0 then maxDim = math.max(size0.X, size0.Y, size0.Z, 2) end
-                        local dist = maxDim * 0.82
-                        local cam = Instance.new("Camera")
-                        cam.FieldOfView = 50
-                        cam.CFrame = CFrame.lookAt(center + Vector3.new(dist * 0.72, dist * 0.42, -dist), center)
-                        cam.Parent = vp
-                        vp.CurrentCamera = cam
-                    end
-                end
+                previewJobs[#previewJobs + 1] = { cell = cell, cfg = cfg }
             end
 
             local bar = Instance.new("Frame")
@@ -9204,6 +9192,81 @@ local function installLocalItemsPage()
                 pcall(SaveProfile)
             end)
         end
+
+        -- ---- 预览模型：页面可见才建，页面关掉立刻销毁 ----
+        local function buildPreview(job)
+            local cell = job.cell
+            if not (cell and cell.Parent) or cell:FindFirstChild("__PrevVP") then return end
+            local cfg = job.cfg
+            local okVp, vp = pcall(Instance.new, "ViewportFrame")
+            if not (okVp and vp) then return end
+            vp.Name = "__PrevVP"
+            vp.BackgroundTransparency = 1
+            vp.Ambient = Color3.new(1, 1, 1)
+            vp.LightColor = Color3.new(1, 1, 1)
+            vp.LightDirection = Vector3.new(-1, -1, -1)
+            vp.Size = UDim2.new(1, -8, 0, 50)
+            vp.Position = UDim2.new(0, 4, 0, 3)
+            local okClone, m = pcall(function() return cfg.Model:Clone() end)
+            if not (okClone and m) then pcall(function() vp:Destroy() end); return end
+            for _, d in ipairs(m:GetDescendants()) do
+                if d:IsA("Script") or d:IsA("LocalScript") then
+                    d:Destroy()
+                elseif d:IsA("BasePart") then
+                    d.Anchored = true
+                    d.CanCollide = false
+                    d.CanQuery = false
+                    d.CanTouch = false
+                end
+            end
+            if cfg.Scale and cfg.Scale > 0 then pcall(function() m:ScaleTo(cfg.Scale) end) end
+            m.Parent = vp
+            local okBox, cf0, size0 = pcall(function()
+                local cf, sz = m:GetBoundingBox()
+                return cf, sz
+            end)
+            local center = (okBox and cf0) and cf0.Position or Vector3.new()
+            local maxDim = 10
+            if okBox and size0 then maxDim = math.max(size0.X, size0.Y, size0.Z, 2) end
+            local dist = maxDim * 0.82
+            local cam = Instance.new("Camera")
+            cam.FieldOfView = 50
+            cam.CFrame = CFrame.lookAt(center + Vector3.new(dist * 0.72, dist * 0.42, -dist), center)
+            cam.Parent = vp
+            vp.CurrentCamera = cam
+            vp.Parent = cell
+        end
+
+        local galleryLive = false
+        table.insert(activeConnections, task.spawn(function()
+            while isRunning do
+                task.wait(0.5)
+                -- 用页面本身的 Visible 判断：父级隐藏时子级 gs.Visible 仍然是 true
+                local open = (page ~= nil and page.Visible == true) and gs ~= nil and gs.Parent ~= nil
+                if open and not galleryLive then
+                    galleryLive = true
+                    -- 0.06s 一个：40 个格子约 2.4 秒铺满。
+                    -- 一下子同时克隆/渲染 40 份皮肤模型会瞬间向资源缓存要几十张贴图，
+                    -- 而 Roblox 自带的 libzstd-jni 解压缓存偶尔会在这种突发下空指针（原生闪退），
+                    -- 拉开间隔能明显降低命中概率，体验上也只是预览图逐个出现。
+                    for _, job in ipairs(previewJobs) do
+                        if not isRunning then break end
+                        if page == nil or page.Visible ~= true then break end
+                        pcall(buildPreview, job)
+                        task.wait(0.06)
+                    end
+                elseif (not open) and galleryLive then
+                    galleryLive = false
+                    for _, job in ipairs(previewJobs) do
+                        local cell = job.cell
+                        if cell then
+                            local vp = cell:FindFirstChild("__PrevVP")
+                            if vp then pcall(function() vp:Destroy() end) end
+                        end
+                    end
+                end
+            end
+        end))
 
         highlightPick(Config.RodSkinPick or "Starlight Rod")
     end
@@ -9617,9 +9680,11 @@ local function installRodSkinBeauty()
     			if body and clone:IsA("BasePart") then
     				clone.CFrame = body.CFrame
     			end
-    			local w = Instance.new("Weld")
-    			w.Part0, w.Part1, w.C0 = body or mh, clone, CFrame.new()
-    			w.Parent = clone
+    			if clone:IsA("BasePart") then
+    				local w = Instance.new("Weld")
+    				w.Part0, w.Part1, w.C0 = body or mh, clone, CFrame.new()
+    				w.Parent = clone
+    			end
     			-- 常开的话竿上会一直冒粒子（就是"特效跟着鱼竿很怪"），
     			-- 关掉常驻，只在本脚本 Emit 时喷
     			for _, d in ipairs(clone:GetDescendants()) do
@@ -9676,6 +9741,13 @@ local function installRodSkinBeauty()
     		return
     	end
 
+    	-- 兜底：重复注入/重生可能留下多份 __RodSkin，只保留当前这一份
+    	if state.model then
+    		for _, ch in ipairs(char:GetChildren()) do
+    			if ch.Name == FOLDER and ch ~= state.model then pcall(function() ch:Destroy() end) end
+    		end
+    	end
+
     	if state.model and state.model.Parent and state.joint and state.handle and state.handle ~= handle then
     		local ok = pcall(function()
     			state.joint.Part0 = handle
@@ -9683,7 +9755,10 @@ local function installRodSkinBeauty()
     		end)
     		if ok then state.handle, state.tool = handle, tool end
     	elseif not state.model or not state.model.Parent then
-    		pcall(spawn, char, tool, handle)
+    		-- 生成失败（比如某把皮肤的 Slash 不是 BasePart）就整份清掉，
+    		-- 避免留下「模型挂在身上但没有关节/没有动画」的半成品，越积越多
+    		local okSpawn = pcall(spawn, char, tool, handle)
+    		if not okSpawn then pcall(despawn) end
     		if not state.model then return end
     	end
 
@@ -9875,6 +9950,9 @@ local function installRodSkinBeauty()
     ------------------------------------------------------------
     local TAG = "__SkinPreview"
     local previewHidden, previewAcc = {}, 0
+    -- PlayerGui 里有 140+ 个 WorldModel、近 4 万个后代实例：整棵树每 3 秒扫一遍纯属浪费。
+    -- 这里缓存 WorldModel 列表，每 5 次（约 15 秒）才重新扫一次。
+    local wmCache, wmScanTick = {}, 0
 
     local function fitClone(src, target)
         local clone = src:Clone()
@@ -9889,6 +9967,14 @@ local function installRodSkinBeauty()
     end
 
     local function beautifyPreviews()
+        -- 钓鱼小游戏进行中不扫：那时候客户端最忙，而背包/商店本来也看不到
+        local pgNow = LocalPlayer:FindFirstChild("PlayerGui")
+        local fNow = pgNow and pgNow:FindFirstChild("MainGui") and pgNow.MainGui:FindFirstChild("Fishing")
+        if fNow and fNow.Visible then return end
+        -- 清掉已经销毁的部件引用，避免 previewHidden 越攒越大（长时间挂机的隐性泄漏）
+        for part in pairs(previewHidden) do
+            if not part.Parent then previewHidden[part] = nil end
+        end
         local me = ReplicatedStorage:FindFirstChild("Data")
         me = me and me:FindFirstChild(tostring(LocalPlayer.UserId))
         if not me then return end
@@ -9898,8 +9984,19 @@ local function installRodSkinBeauty()
         if not cfg or not cfg.Model then return end
         local pg = LocalPlayer:FindFirstChild("PlayerGui")
         if not pg then return end
-        for _, wm in ipairs(pg:GetDescendants()) do
-            if wm:IsA("WorldModel") and not wm:FindFirstChild(TAG) then
+        wmScanTick = wmScanTick + 1
+        if #wmCache == 0 or wmScanTick % 5 == 0 then
+            wmCache = {}
+            for _, d in ipairs(pg:GetDescendants()) do
+                if d:IsA("WorldModel") then wmCache[#wmCache + 1] = d end
+            end
+        end
+        -- 一次最多补 3 个：背包/商店刚打开时可能一口气冒出一堆 WorldModel，
+        -- 同时克隆会形成资源加载突发（同上，libzstd 解压那条线最怕这个）。剩下的下一轮再补。
+        local builtThisPass = 0
+        for _, wm in ipairs(wmCache) do
+            if builtThisPass >= 3 then break end
+            if wm.Parent and not wm:FindFirstChild(TAG) then
                 local orig = wm:FindFirstChild(rodName)
                 if orig and orig:IsA("Model") then
                     local ok, clone = pcall(fitClone, cfg.Model, orig)
@@ -9911,6 +10008,7 @@ local function installRodSkinBeauty()
                             end
                         end
                         clone.Parent = wm
+                        builtThisPass = builtThisPass + 1
                     end
                 end
             end
@@ -9940,7 +10038,7 @@ local function installRodSkinBeauty()
     table.insert(activeConnections, RunService.Heartbeat:Connect(function(dt)
         if not enabled then return end
         previewAcc = previewAcc + dt
-        if previewAcc < 1.5 then return end
+        if previewAcc < 3 then return end
         previewAcc = 0
         pcall(beautifyPreviews)
     end))
