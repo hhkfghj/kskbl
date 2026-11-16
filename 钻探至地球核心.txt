@@ -1,0 +1,5617 @@
+--[[
+	钻探至地球核心 · 单文件版
+	用法：在 Roblox 执行器（Delta / Arceus / Xeno 等）里执行本文件
+	按右侧圆钮或 Ctrl 键开关界面
+]]
+
+-- ===== 00_core.luau =====
+do
+--[[
+	钻探至地球核心 · Core
+	统一的服务引用 / 工具函数 / 全局状态
+]]
+
+local Players           = game:GetService("Players")
+local RunService        = game:GetService("RunService")
+local UserInputService  = game:GetService("UserInputService")
+local TweenService      = game:GetService("TweenService")
+local HttpService       = game:GetService("HttpService")
+local Lighting          = game:GetService("Lighting")
+local Workspace         = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CoreGui           = game:GetService("CoreGui")
+local VirtualUser       = game:GetService("VirtualUser")
+
+local LP = Players.LocalPlayer
+
+HUB = HUB or {}
+HUB.Version = "1.1.0"
+HUB.Name    = "钻探至地球核心"
+
+HUB.Services = {
+	Players           = Players,
+	RunService        = RunService,
+	UserInputService  = UserInputService,
+	TweenService      = TweenService,
+	HttpService       = HttpService,
+	Lighting          = Lighting,
+	Workspace         = Workspace,
+	ReplicatedStorage = ReplicatedStorage,
+	CoreGui           = CoreGui,
+	VirtualUser       = VirtualUser,
+}
+
+HUB.Player  = LP
+HUB.Flags   = {}      -- 所有开关/数值的当前值
+HUB.Conns   = {}      -- 需要统一断开的连接
+HUB.Objects = {}      -- 需要统一销毁的实例
+HUB.Cleanup = {}      -- 清理函数
+HUB.State   = {}      -- 运行期共享状态（自动模块用）
+
+-- 主题
+HUB.Theme = {
+	Accent      = Color3.fromRGB(124, 92, 255),
+	AccentDim   = Color3.fromRGB(96, 72, 199),
+	Bg          = Color3.fromRGB(13, 14, 19),
+	Panel       = Color3.fromRGB(19, 21, 28),
+	Card        = Color3.fromRGB(26, 28, 37),
+	CardHover   = Color3.fromRGB(33, 36, 47),
+	Stroke      = Color3.fromRGB(45, 49, 63),
+	Text        = Color3.fromRGB(232, 234, 242),
+	TextDim     = Color3.fromRGB(146, 152, 170),
+	Good        = Color3.fromRGB(80, 200, 130),
+	Bad         = Color3.fromRGB(240, 96, 96),
+	Warn        = Color3.fromRGB(245, 190, 90),
+	Font        = Enum.Font.GothamMedium,
+	FontBold    = Enum.Font.GothamBold,
+}
+
+---------------------------------------------------------------------
+-- 工具
+---------------------------------------------------------------------
+function HUB.new(class, props)
+	local inst = Instance.new(class)
+	local parent
+	if props then
+		for k, v in pairs(props) do
+			if k == "Parent" then
+				parent = v
+			else
+				inst[k] = v
+			end
+		end
+	end
+	if parent then
+		inst.Parent = parent
+	end
+	return inst
+end
+
+function HUB.tween(inst, time, props, style, dir)
+	local tween = TweenService:Create(
+		inst,
+		TweenInfo.new(time or 0.18, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out),
+		props
+	)
+	tween:Play()
+	return tween
+end
+
+function HUB.connect(sig, fn)
+	local conn = sig:Connect(fn)
+	table.insert(HUB.Conns, conn)
+	return conn
+end
+
+function HUB.cleanup(fn)
+	table.insert(HUB.Cleanup, fn)
+end
+
+-- 取一个不会被游戏 UI 遮挡、也不被销毁的父容器
+function HUB.container()
+	if type(gethui) == "function" then
+		local ok, hui = pcall(gethui)
+		if ok and hui then
+			return hui
+		end
+	end
+	if type(hiddenUi) == "function" then
+		local ok, hui = pcall(hiddenUi)
+		if ok and hui then
+			return hui
+		end
+	end
+	local ok, cg = pcall(function()
+		return game:GetService("CoreGui")
+	end)
+	if ok and cg then
+		return cg
+	end
+	return LP:WaitForChild("PlayerGui")
+end
+
+function HUB.character()
+	local char = LP.Character
+	if not char then
+		char = LP.CharacterAdded:Wait()
+	end
+	return char
+end
+
+function HUB.humanoid()
+	local char = LP.Character
+	if not char then
+		return nil
+	end
+	return char:FindFirstChildOfClass("Humanoid")
+end
+
+function HUB.rootPart()
+	local char = LP.Character
+	if not char then
+		return nil
+	end
+	return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("UpperTorso")
+end
+
+function HUB.isAlive()
+	local hum = HUB.humanoid()
+	return hum ~= nil and hum.Health > 0
+end
+
+function HUB.distanceTo(part)
+	local root = HUB.rootPart()
+	if not root or not part then
+		return math.huge
+	end
+	return (root.Position - part.Position).Magnitude
+end
+
+function HUB.formatNum(n)
+	n = tonumber(n) or 0
+	if n >= 1e9 then
+		return string.format("%.2fB", n / 1e9)
+	elseif n >= 1e6 then
+		return string.format("%.2fM", n / 1e6)
+	elseif n >= 1e3 then
+		return string.format("%.1fK", n / 1e3)
+	end
+	return tostring(math.floor(n))
+end
+
+-- 世界坐标 -> 屏幕坐标
+function HUB.worldToScreen(pos)
+	local cam = Workspace.CurrentCamera
+	if not cam then
+		return nil
+	end
+	local sp, onScreen = cam:WorldToViewportPoint(pos)
+	if not onScreen then
+		return nil
+	end
+	return Vector2.new(sp.X, sp.Y), sp.Z
+end
+
+-- 触发一个 clickdetector / proximityprompt（自动化用）
+function HUB.firePrompt(part, distance)
+	local prompt = part:FindFirstChildWhichIsA("ProximityPrompt", true)
+	if prompt and type(fireproximityprompt) == "function" then
+		pcall(fireproximityprompt, prompt)
+		return true
+	end
+	local detector = part:FindFirstChildWhichIsA("ClickDetector", true)
+	if detector and type(fireclickdetector) == "function" then
+		pcall(fireclickdetector, detector)
+		return true
+	end
+	return false
+end
+
+HUB.Notify = function() end -- 由 UI 模块覆盖
+
+end
+
+-- ===== 05_entities.luau =====
+do
+--[[
+	钻探至地球核心 · 实体识别（怪物 / 矿石 / 掉落物 / 宝箱 / 地牢门）
+	名字与属性来自实机探测，写死不用手动填
+]]
+
+local Workspace = game:GetService("Workspace")
+local Players   = game:GetService("Players")
+local CollectionService = game:GetService("CollectionService")
+
+local LP = HUB.Player
+
+-- 敌对单位白名单（游戏里的怪）
+HUB.HostileNames = {
+	["Goblin"] = true,
+	["Goblin Brute"] = true,
+	["Spider"] = true,
+	["Crazy Miner"] = true,
+	["Bandit Miner"] = true,
+	["Loot Goblin"] = true,
+	["Blinker"] = true,
+	["Mimic"] = true,
+	["Vampire"] = true,
+	["Vampire Lord"] = true,
+	["Spider Queen"] = true,
+	["Skeleton"] = true,
+	["Rat"] = true,
+	["Bat"] = true,
+	["Slime"] = true,
+	["Guard"] = true,
+	["Guardian"] = true,
+	["Warden"] = true,
+	["Boss"] = true,
+}
+
+-- 友方 NPC（别打）
+HUB.FriendlyNames = {
+	["Benji The Banker"] = true,
+	["Poppy The Postmaster"] = true,
+	["Simon the Shopkeeper"] = true,
+	["Crazy Zack"] = true,
+	["Suporaxi"] = true,
+}
+
+function HUB.isAllyModel(model)
+	if not model then
+		return true
+	end
+	if HUB.FriendlyNames[model.Name] then
+		return true
+	end
+	-- 玩家角色
+	local plr = Players:GetPlayerFromCharacter(model)
+	if plr then
+		return true
+	end
+	-- 有 OwnerPlayer / 已招募的跟班
+	if model:GetAttribute("OwnerUserId") then
+		return true
+	end
+	return false
+end
+
+function HUB.isEnemyModel(model)
+	if not model or HUB.isAllyModel(model) then
+		return false
+	end
+	local hum = model:FindFirstChildOfClass("Humanoid")
+	if not hum or hum.Health <= 0 then
+		return false
+	end
+	if HUB.HostileNames[model.Name] then
+		return true
+	end
+	-- 兜底：Npc 文件夹里的活物都算怪
+	if model.Parent and model.Parent.Name == "Npc" then
+		return true
+	end
+	return false
+end
+
+local function rootOf(model)
+	return model:FindFirstChild("HumanoidRootPart")
+		or model:FindFirstChild("UpperTorso")
+		or model:FindFirstChildWhichIsA("BasePart", true)
+end
+
+-- 全部敌对单位，按距离排序
+function HUB.getEnemies(maxDist)
+	local out = {}
+	local myRoot = HUB.rootPart()
+	if not myRoot then
+		return out
+	end
+	for _, inst in ipairs(Workspace:GetDescendants()) do
+		if inst:IsA("Humanoid") and inst.Parent and inst.Health > 0 then
+			local model = inst.Parent
+			if HUB.isEnemyModel(model) then
+				local part = rootOf(model)
+				if part then
+					local dist = (part.Position - myRoot.Position).Magnitude
+					if not maxDist or dist <= maxDist then
+						table.insert(out, { model = model, part = part, hum = inst, dist = dist })
+					end
+				end
+			end
+		end
+	end
+	table.sort(out, function(a, b)
+		return a.dist < b.dist
+	end)
+	return out
+end
+
+-- 最近的敌对单位
+function HUB.getClosestEnemy(maxDist)
+	local list = HUB.getEnemies(maxDist)
+	return list[1]
+end
+
+-- 全部矿石节点（Part 上带 SessionOreId）
+function HUB.getOres(maxDist, typeFilter)
+	local out = {}
+	local myRoot = HUB.rootPart()
+	if not myRoot then
+		return out
+	end
+	for _, inst in ipairs(Workspace:GetDescendants()) do
+		if inst:IsA("BasePart") and inst:GetAttribute("SessionOreId") then
+			if inst.Parent then
+				local oreType = inst:GetAttribute("SessionOreType")
+				if not typeFilter or typeFilter == "全部" or tostring(oreType) == typeFilter then
+					local dist = (inst.Position - myRoot.Position).Magnitude
+					if not maxDist or dist <= maxDist then
+						table.insert(out, { part = inst, dist = dist, oreType = oreType, node = inst })
+					end
+				end
+			end
+		end
+	end
+	table.sort(out, function(a, b)
+		return a.dist < b.dist
+	end)
+	return out
+end
+
+-- 地上的掉落物
+function HUB.getDroppedItems(maxDist)
+	local out = {}
+	local myRoot = HUB.rootPart()
+	local folder = Workspace:FindFirstChild("Items")
+	if not folder or not myRoot then
+		return out
+	end
+	for _, item in ipairs(folder:GetChildren()) do
+		-- 商店展示件（带 ShopItem 标签）不能捡，直接跳过
+		if not CollectionService:HasTag(item, "ShopItem") then
+			local part
+			if item:IsA("BasePart") then
+				part = item
+			elseif item:IsA("Model") then
+				part = item:FindFirstChild("Root") or item:FindFirstChildWhichIsA("BasePart", true)
+			end
+			if part then
+				local dist = (part.Position - myRoot.Position).Magnitude
+				if not maxDist or dist <= maxDist then
+					table.insert(out, { model = item, part = part, dist = dist, name = item.Name })
+				end
+			end
+		end
+	end
+	table.sort(out, function(a, b)
+		return a.dist < b.dist
+	end)
+	return out
+end
+
+-- 宝箱：只认世界里真正能交互的箱子（ChestNode 下、带 ProximityPrompt）
+-- 地上掉的护甲（Steel_Chest / Rusty_Chest）和 Props 里的 CrateGroup/ChestStep 都不算
+function HUB.getChests(maxDist)
+	local out = {}
+	local myRoot = HUB.rootPart()
+	if not myRoot then
+		return out
+	end
+	for _, inst in ipairs(Workspace:GetDescendants()) do
+		if inst:IsA("Model") then
+			local lower = string.lower(inst.Name)
+			if string.find(lower, "chest") or string.find(lower, "crate") then
+				local skip = false
+				-- 地上的掉落物（护甲、道具）不算宝箱
+				local parentName = inst.Parent and inst.Parent.Name or ""
+				if parentName == "Items" then
+					skip = true
+				end
+				local def = HUB.getItemDef and HUB.getItemDef(inst.Name)
+				if def and def.Attributes and def.Attributes.Category == "Armor" then
+					skip = true
+				end
+				-- Props 里的装饰物（CrateGroup / ChestStep）不算
+				if string.find(lower, "crate") or string.find(lower, "step") then
+					skip = true
+				end
+				if not skip then
+					local hasPrompt = false
+					for _, d in ipairs(inst:GetDescendants()) do
+						if d:IsA("ProximityPrompt") then
+							hasPrompt = true
+							break
+						end
+					end
+					local isNode = string.find(parentName, "ChestNode") ~= nil or string.find(parentName, "Chests") ~= nil
+					if hasPrompt and isNode then
+						local part = inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart", true)
+						if part then
+							local dist = (part.Position - myRoot.Position).Magnitude
+							if not maxDist or dist <= maxDist then
+								table.insert(out, { model = inst, part = part, dist = dist, name = inst.Name })
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+	table.sort(out, function(a, b)
+		return a.dist < b.dist
+	end)
+	return out
+end
+
+-- 地牢门
+function HUB.getGates()
+	local out = {}
+	for _, inst in ipairs(Workspace:GetChildren()) do
+		if inst:IsA("Model") and string.find(inst.Name, "DungeonGate") then
+			local part = inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart", true)
+			if part then
+				local prompt
+				for _, d in ipairs(inst:GetDescendants()) do
+					if d:IsA("ProximityPrompt") and string.find(string.lower(tostring(d.ObjectText)), "dungeon") then
+						prompt = d
+					end
+				end
+				local tier = string.match(inst.Name, "Tier(%d)")
+				table.insert(out, {
+					model = inst,
+					part = part,
+					tier = tier and tonumber(tier) or 0,
+					prompt = prompt,
+					dist = HUB.distanceTo(part),
+				})
+			end
+		end
+	end
+	table.sort(out, function(a, b)
+		return a.dist < b.dist
+	end)
+	return out
+end
+
+-- 全部血量很高的单位（BOSS）
+function HUB.getBosses(minHealth)
+	minHealth = minHealth or 2000
+	local out = {}
+	local myRoot = HUB.rootPart()
+	if not myRoot then
+		return out
+	end
+	for _, inst in ipairs(Workspace:GetDescendants()) do
+		if inst:IsA("Humanoid") and inst.Parent and inst.MaxHealth >= minHealth and inst.Health > 0 then
+			local part = rootOf(inst.Parent)
+			if part then
+				table.insert(out, {
+					model = inst.Parent,
+					part = part,
+					hum = inst,
+					dist = (part.Position - myRoot.Position).Magnitude,
+				})
+			end
+		end
+	end
+	table.sort(out, function(a, b)
+		return a.dist < b.dist
+	end)
+	return out
+end
+
+
+---------------------------------------------------------------------
+-- 掉落物分类 / 宝箱等级
+---------------------------------------------------------------------
+-- 物品数据库（354 件，含游戏自己的分类/价值/稀有度）
+local itemDefs = nil
+function HUB.getItemDefs()
+	if itemDefs then
+		return itemDefs
+	end
+	local ok, defs = pcall(function()
+		local rs = game:GetService("ReplicatedStorage")
+		local shared = rs:FindFirstChild("Shared")
+		local db = shared and shared:FindFirstChild("ItemDatabase")
+		local defsMod = db and db:FindFirstChild("Definitions")
+		if not defsMod then
+			return nil
+		end
+		return require(defsMod)
+	end)
+	itemDefs = (ok and type(defs) == "table") and defs or {}
+	return itemDefs
+end
+
+function HUB.getItemDef(id)
+	if not id then
+		return nil
+	end
+	return HUB.getItemDefs()[id]
+end
+
+-- 游戏分类 -> 界面分类
+local CATEGORY_MAP = {
+	["Melee"] = "武器",
+	["Primary Gun"] = "武器",
+	["Secondary Gun"] = "武器",
+	["Launcher"] = "武器",
+	["Pickaxe"] = "镐子",
+	["Ammo"] = "子弹",
+	["Armor"] = "装备",
+	["Scrap"] = "卖钱",
+	["Corpse"] = "尸体",
+}
+
+function HUB.itemCategory(name)
+	local id = tostring(name)
+	local def = HUB.getItemDef(id)
+	local gameCat = def and def.Attributes and def.Attributes.Category
+	local n = string.lower(id)
+	if gameCat then
+		if gameCat == "Consumable" then
+			if string.find(n, "potion") or string.find(n, "elixir") then
+				return "药水"
+			end
+			return "医疗包"
+		end
+		local mapped = CATEGORY_MAP[gameCat]
+		if mapped then
+			return mapped
+		end
+		return "其他"
+	end
+	-- 数据库里没有的，按名字兜底
+	if string.find(n, "pickaxe") then
+		return "镐子"
+	end
+	if string.find(n, "ammo") then
+		return "子弹"
+	end
+	if string.find(n, "medkit") or string.find(n, "bandage") then
+		return "医疗包"
+	end
+	if string.find(n, "potion") then
+		return "药水"
+	end
+	if string.find(n, "sword") or string.find(n, "rifle") or string.find(n, "revolver")
+		or string.find(n, "shotgun") or string.find(n, "launcher") or string.find(n, "hammer") then
+		return "武器"
+	end
+	if string.find(n, "boot") or string.find(n, "helmet") or string.find(n, "legs")
+		or string.find(n, "chest") or string.find(n, "armor") then
+		return "装备"
+	end
+	return "其他"
+end
+
+HUB.ItemCategories = { "武器", "镐子", "医疗包", "药水", "子弹", "装备", "卖钱", "尸体", "其他" }
+
+-- 整张物品表里，某一大类的全部物品（中文名），不依赖地上有没有
+function HUB.allItemNamesByCat(cat)
+	local seen, out = {}, {}
+	for id in pairs(HUB.getItemDefs()) do
+		if HUB.itemCategory(id) == cat then
+			local zh = HUB.zhName(id)
+			if not seen[zh] then
+				seen[zh] = true
+				out[#out + 1] = zh
+			end
+		end
+	end
+	table.sort(out)
+	return out
+end
+
+function HUB.chestTier(name)
+	local n = string.lower(tostring(name))
+	if string.find(n, "gold") or string.find(n, "diamond") or string.find(n, "void")
+		or string.find(n, "core") or string.find(n, "phoenix") or string.find(n, "royal")
+		or string.find(n, "legend") or string.find(n, "epic") then
+		return "高级"
+	end
+	return "普通"
+end
+
+
+-- 物品价值（卖钱用）
+function HUB.itemValue(item)
+	local v = item:GetAttribute("Value")
+	if v == nil then
+		v = item:GetAttribute("Cost")
+	end
+	if v == nil then
+		local def = HUB.getItemDef(item.Name)
+		v = def and def.Attributes and def.Attributes.Value
+	end
+	return tonumber(v) or 0
+end
+
+end
+
+-- ===== 07_names.luau =====
+do
+--[[
+	钻探至地球核心 · 中英对照
+	游戏里资源名全是英文，界面统一显示中文
+]]
+
+local exact = {
+	-- 怪物
+	["Goblin"] = "哥布林",
+	["Goblin Brute"] = "哥布林壮汉",
+	["Spider"] = "蜘蛛",
+	["Crazy Miner"] = "疯狂矿工",
+	["Bandit Miner"] = "强盗矿工",
+	["Loot Goblin"] = "拾荒哥布林",
+	["Blinker"] = "闪现怪",
+	["Mimic"] = "拟态宝箱",
+	["Vampire"] = "吸血鬼",
+	["Vampire Lord"] = "吸血鬼领主",
+	["Spider Queen"] = "蜘蛛女王",
+	["Skeleton"] = "骷髅",
+	["Rat"] = "老鼠",
+	["Bat"] = "蝙蝠",
+	["Slime"] = "史莱姆",
+	["Warden"] = "守卫",
+	["Boss"] = "首领",
+
+	-- NPC
+	["Benji The Banker"] = "银行家本吉",
+	["Poppy The Postmaster"] = "邮差波比",
+	["Simon the Shopkeeper"] = "店主西蒙",
+	["Crazy Zack"] = "疯子扎克",
+	["Suporaxi"] = "苏波拉希",
+
+	-- 矿石类型
+	["Coal"] = "煤炭",
+	["Iron"] = "铁矿",
+	["Gold"] = "黄金",
+	["WormCoal"] = "蠕虫煤",
+	["WormIron"] = "蠕虫铁",
+	["Crystal"] = "水晶",
+	["Diamond"] = "钻石",
+	["Void"] = "虚空矿",
+	["Obsidian"] = "黑曜石",
+	["Copper"] = "铜矿",
+	["Silver"] = "银矿",
+	["Platinum"] = "铂金",
+	["Ruby"] = "红宝石",
+	["Emerald"] = "翡翠",
+	["Sapphire"] = "蓝宝石",
+	["Topaz"] = "黄玉",
+
+	-- 物品
+	["Basic_Medkit"] = "基础医疗包",
+	["Golden_Medkit"] = "黄金医疗包",
+	["CopperWire"] = "铜线",
+	["Diamond_SpeedBoots"] = "钻石疾行靴",
+	["GasCan"] = "汽油桶",
+	["GearAssembly"] = "齿轮组件",
+	["Generator"] = "发电机",
+	["Jar"] = "陶罐",
+	["MinecartWheel"] = "矿车轮",
+	["MinerBandit_Chest"] = "矿贼宝箱",
+	["MinerBandit_Helmet"] = "矿贼头盔",
+	["Mug"] = "马克杯",
+	["Ore_Coal"] = "煤炭",
+	["Ore_Iron"] = "铁矿",
+	["Ore_Gold"] = "黄金",
+	["Rifle_Standard"] = "标准步枪",
+	["SheetMetal"] = "金属板",
+	["Spring"] = "弹簧",
+	["Void_Revolver"] = "虚空左轮",
+	["WaxCandle"] = "蜡烛",
+	["SpeedPotion"] = "速度药水",
+	["Pickaxe_Wooden"] = "木镐",
+	["Pickaxe_Rusty"] = "生锈镐",
+	["Pickaxe_Steel"] = "钢镐",
+	["Pickaxe_Gold"] = "金镐",
+	["Pickaxe_Diamond"] = "钻石镐",
+	["Pickaxe_Void"] = "虚空镐",
+	["Pickaxe_Phoenix"] = "凤凰镐",
+	["Pickaxe_Prospector"] = "淘金镐",
+	["Sword_Wooden"] = "木剑",
+	["Sword_Rusty"] = "生锈剑",
+	["Sword_Steel"] = "钢剑",
+	["Sword_Gold"] = "金剑",
+	["Sword_Diamond"] = "钻石剑",
+	["Sword_Void"] = "虚空剑",
+	["Sword_Phoenix"] = "凤凰剑",
+	["Champions_Hammer"] = "冠军战锤",
+	["Gold_SpeedBoots"] = "黄金疾行靴",
+	["DiamondGoblet"] = "钻石高脚杯",
+	["SilverVase"] = "白银花瓶",
+	["Rifle_Ammo"] = "步枪子弹",
+	["PaintBucket"] = "油漆桶",
+
+	-- 弹药 / 消耗 / 杂物（实机掉落物里出现过的）
+	["Pistol_Ammo"] = "手枪子弹",
+	["Rifle_Ammo"] = "步枪子弹",
+	["Shotgun_Ammo"] = "霰弹枪子弹",
+	["Launcher_Ammo"] = "榴弹",
+	["Bandages"] = "绷带",
+	["Bandage"] = "绷带",
+	["Fuel"] = "燃料",
+	["Scrap"] = "废料",
+	["Torch"] = "火把",
+	["Lantern"] = "提灯",
+	["Rope"] = "绳索",
+	["Key"] = "钥匙",
+	["Coin"] = "金币",
+	["Wood"] = "木头",
+	["Stone"] = "石头",
+	["Clay"] = "黏土",
+	["Glass"] = "玻璃",
+	["Bottle"] = "瓶子",
+	["IronBar"] = "铁锭",
+	["GoldBar"] = "金锭",
+	["CopperBar"] = "铜锭",
+	["Gem"] = "宝石",
+	["Crystal"] = "水晶",
+	["Bone"] = "骨头",
+	["Hide"] = "兽皮",
+	["Meat"] = "肉",
+	["Pelt"] = "皮毛",
+	["Skull"] = "头骨",
+	["Helmet"] = "头盔",
+	["Armor_Plate"] = "护甲板",
+	["Gun"] = "枪",
+	["Revolver"] = "左轮",
+	["Rifle"] = "步枪",
+	["Shotgun"] = "霰弹枪",
+	["Pistol"] = "手枪",
+	["Launcher"] = "榴弹发射器",
+
+
+	-- 实机掉落物补充
+	["DeathChest"] = "死亡宝箱",
+	["GoldChest"] = "黄金宝箱",
+	["TutorialCommonChest"] = "新手宝箱",
+	["YourCrate"] = "你的木箱",
+	["CrateGroup"] = "木箱堆",
+	["ChestStep"] = "宝箱台阶",
+	["Bolt"] = "螺栓",
+	["Boot"] = "靴子",
+	["Dice"] = "骰子",
+	["Fan"] = "风扇",
+	["Pipe"] = "管道",
+	["PropaneTank"] = "丙烷罐",
+	["Radiator"] = "散热器",
+	["SilverTrophy"] = "白银奖杯",
+	["VampireKey"] = "吸血鬼钥匙",
+	["Goblin_Statue"] = "哥布林雕像",
+
+
+	["AntiqueCamera"] = "古董相机",
+	["GoldClock"] = "金钟",
+	["GoldTooth"] = "金牙",
+	["Engine"] = "引擎",
+	["Rotor"] = "转子",
+	["Typewriter"] = "打字机",
+	["Gramophone"] = "留声机",
+	["PocketWatch"] = "怀表",
+	["MusicBox"] = "八音盒",
+	["Necklace"] = "项链",
+	["Ring"] = "戒指",
+	["Crown"] = "王冠",
+	["Scepter"] = "权杖",
+	["Idol"] = "神像",
+	["Relic"] = "遗物",
+	["Artifact"] = "古董",
+	["Tooth"] = "牙齿",
+	["Clock"] = "钟",
+	["Camera"] = "相机",
+
+
+	["Advanced_Medkit"] = "高级医疗包",
+	["Dynamite_Stick"] = "炸药棒",
+	["NightVisionPotion"] = "夜视药水",
+	["StrengthPotion"] = "力量药水",
+	["SpeedPotion"] = "速度药水",
+	["Rusty_Legs"] = "生锈护腿",
+	["Rusty_SpeedBoots"] = "生锈疾行靴",
+	["Steel_SpeedBoots"] = "钢制疾行靴",
+
+
+	["InvisibilityPotion"] = "隐身药水",
+	["Decoy_Grenade"] = "诱饵手雷",
+	["Grenade"] = "手雷",
+
+}
+
+-- 词根表（拆分处理 Golden_Foo 之类）
+local words = {
+	Basic = "初级", Golden = "黄金", Silver = "白银", Diamond = "钻石", Copper = "铜",
+	Iron = "铁", Gold = "金", Wood = "木", Wooden = "木", Rusty = "生锈", Steel = "钢",
+	Void = "虚空", Phoenix = "凤凰", Crystal = "水晶", Coal = "煤炭", Worm = "蠕虫",
+	Medkit = "医疗包", Med = "医疗", Kit = "包", Speed = "疾行", Boots = "靴子",
+	Gas = "汽油", Can = "桶", Gear = "齿轮", Assembly = "组件", Generator = "发电机",
+	Jar = "陶罐", Minecart = "矿车", Wheel = "轮子", Helmet = "头盔", Chest = "宝箱",
+	Mug = "马克杯", Rifle = "步枪", Standard = "标准", Sheet = "板", Metal = "金属",
+	Spring = "弹簧", Revolver = "左轮", Candle = "蜡烛", Wax = "蜡", Potion = "药水",
+	Pickaxe = "镐", Sword = "剑", Hammer = "战锤", Champions = "冠军", Prospector = "淘金",
+	Armor = "护甲", Scrap = "废料", Ore = "矿石", Ammo = "弹药", Paint = "油漆",
+	Bucket = "桶", Goblet = "高脚杯", Vase = "花瓶", SpeedPotion = "速度药水",
+	Fuel = "燃料", Meds = "药品", Bandage = "绷带", Bandages = "绷带",
+	Crate = "木箱", Statue = "雕像", Trophy = "奖杯", Tank = "罐", Propane = "丙烷",
+	Radiator = "散热器", Fan = "风扇", Bolt = "螺栓", Dice = "骰子", Pipe = "管道",
+	Step = "台阶", Death = "死亡", Tutorial = "新手", Common = "普通", Goblin = "哥布林",
+	Vampire = "吸血鬼", Boot = "靴子", Silver = "白银",
+	Advanced = "高级", Dynamite = "炸药", Stick = "棒", NightVision = "夜视",
+	Night = "夜", Vision = "视觉", Legs = "护腿", Strength = "力量",
+	SpeedBoots = "疾行靴", Invisibility = "隐身", Decoy = "诱饵", Grenade = "手雷",
+	Miner = "矿工", Elite = "精英", Landmine = "地雷", MinerHelmet = "矿工头盔", Gloves = "手套", Pants = "裤子", Shirt = "上衣",
+	Chestplate = "胸甲", Rusty = "生锈", Steel = "钢", Iron = "铁",
+	Engine = "引擎", Rotor = "转子", Clock = "钟", Tooth = "牙齿", Camera = "相机",
+	Antique = "古董", Gold = "金", Ring = "戒指", Crown = "王冠", Relic = "遗物",
+	Ammo = "弹药", Pistol = "手枪", Shotgun = "霰弹枪", Launcher = "榴弹",
+	Torch = "火把", Lantern = "提灯", Rope = "绳索", Key = "钥匙", Coin = "金币",
+	Wood = "木头", Stone = "石头", Clay = "黏土", Glass = "玻璃", Bottle = "瓶子",
+	Bar = "锭", Gem = "宝石", Bone = "骨头", Hide = "兽皮", Meat = "肉",
+	Pelt = "皮毛", Skull = "头骨", Plate = "板", Gun = "枪", Barrel = "枪管",
+}
+
+local function splitWords(name)
+	local out = {}
+	for part in string.gmatch(name, "[^_]+") do
+		out[#out + 1] = part
+	end
+	return out
+end
+
+-- 名字 → 中文（找不到时返回原名）
+function HUB.zhName(name)
+	if not name or name == "" then
+		return "未知"
+	end
+	if exact[name] then
+		return exact[name]
+	end
+	-- 去掉 Ore_ 前缀
+	local stripped = string.match(name, "^Ore_(.+)$")
+	if stripped and exact[stripped] then
+		return exact[stripped]
+	end
+	-- 逐词翻译
+	local parts = splitWords(name)
+	local translated = {}
+	local allHit = true
+	for _, part in ipairs(parts) do
+		if words[part] then
+			table.insert(translated, words[part])
+		elseif exact[part] then
+			table.insert(translated, exact[part])
+		else
+			allHit = false
+			break
+		end
+	end
+	if allHit and #translated > 0 then
+		return table.concat(translated, "")
+	end
+	return name
+end
+
+function HUB.zhOre(oreType)
+	if not oreType then
+		return "矿石"
+	end
+	return exact[tostring(oreType)] or HUB.zhName(tostring(oreType))
+end
+
+-- 稀有度
+local rarityZh = {
+	Common = "普通", Uncommon = "优秀", Rare = "稀有", Epic = "史诗",
+	Legendary = "传说", Mythic = "神话", Exotic = "异域",
+}
+
+function HUB.zhRarity(r)
+	return rarityZh[r] or r or ""
+end
+
+---------------------------------------------------------------------
+-- 词根表（覆盖物品库里 250 个词根，驼峰/下划线都能拆）
+---------------------------------------------------------------------
+local tokens = {
+	Advanced = "高级", Ammo = "弹药", Anti = "防", Antique = "古董", Assembly = "组件",
+	Auto = "自动", Bandages = "绷带", Bandit = "强盗", Banner = "旗帜", Bar = "锭",
+	Barbed = "带刺", Basic = "基础", Bat = "蝙蝠", Black = "黑", Blast = "爆破",
+	Blocker = "阻挡器", Blueprint = "蓝图", Bolt = "螺栓", Boost = "增益", Boot = "靴子",
+	Boots = "靴子", Bounty = "赏金", Bruiser = "壮汉", Brute = "壮汉", Bucket = "桶",
+	Camera = "相机", Can = "罐", Candelabra = "烛台", Candle = "蜡烛", Cannon = "加农炮",
+	Chair = "椅子", Champion = "冠军", Champions = "冠军", Chest = "胸甲", Clock = "钟",
+	Coal = "煤炭", Cog = "齿轮", Companion = "同伴", Compass = "指南针", Copper = "铜",
+	Crafter = "工匠", Crafting = "制作", Crate = "木箱", Crazy = "疯狂", Crown = "王冠",
+	Crystal = "水晶", Dark = "黑暗", Decoy = "诱饵", Default = "默认",
+	Demolitionist = "爆破手", Device = "装置", Diamond = "钻石", Dice = "骰子",
+	Drill = "钻机", Driller = "钻工", Duck = "鸭子", Dynamite = "炸药", Elite = "精英",
+	Elixir = "药水", Emerald = "翡翠", Engine = "引擎", Engineer = "工程师", Epic = "史诗",
+	Essence = "精华", Event = "活动", Excalibur = "王者之剑", Executioner = "处刑者",
+	Fan = "风扇", Field = "野外", Fire = "火", Flamethrower = "喷火器",
+	Flintlock = "燧发枪", Frosthrower = "冰霜喷射器", Furnace = "熔炉", Gas = "汽油",
+	Gear = "齿轮", Gem = "宝石", Generator = "发电机", Giant = "巨人", Goblet = "高脚杯",
+	Goblin = "哥布林", Gold = "金", Golden = "黄金", Grenade = "手雷", Gun = "枪",
+	Gunner = "枪手", Gunslinger = "快枪手", Gunsmith = "枪匠", Hammer = "战锤",
+	Hat = "帽子", Healer = "治疗师", Healing = "治疗", Heartgem = "心晶",
+	Helmet = "头盔", Hoarder = "囤积者", Hole = "洞", Hood = "兜帽", Hunter = "猎人",
+	Hunters = "猎人", Ice = "冰", Inner = "内部", Invisibility = "隐身", Iron = "铁",
+	Jack = "杰克", Jar = "陶罐", Key = "钥匙", King = "国王", Kings = "国王",
+	Kingslayer = "弑王者", Kit = "包", Knight = "骑士", Landmine = "地雷",
+	Lantern = "提灯", Launcher = "发射器", Legendary = "传说", Legs = "护腿",
+	Loot = "战利品", Looter = "拾荒者", Lord = "领主", Luck = "幸运", Lucky = "幸运",
+	Magnet = "磁铁", Man = "人", Mask = "面具", Mechanic = "机械师", Medkit = "医疗包",
+	Mercenary = "雇佣兵", Metal = "金属", Minecart = "矿车", Miner = "矿工",
+	Minion = "仆从", Module = "模块", Mole = "鼹鼠", Money = "金钱", Mug = "马克杯",
+	Musket = "火枪", Mythic = "神话", Nail = "钉子", Night = "夜",
+	Nightcrawler = "夜行者", Node = "节点", None = "无", Nuke = "核弹",
+	OLantern = "南瓜灯", Orb = "宝珠", Ore = "矿石", Paint = "油漆", Path = "路径",
+	Pendant = "吊坠", Phantom = "幽灵", Phoenix = "凤凰", Pickaxe = "镐", Pilot = "驾驶员",
+	Pipe = "管道", Pirate = "海盗", Pistol = "手枪", Player = "玩家", Pocket = "口袋",
+	Poison = "毒", Potion = "药水", Priest = "牧师", Princess = "公主",
+	Pristine = "完好", Propane = "丙烷", Prospector = "淘金者", Pumpkin = "南瓜",
+	Queen = "女王", RPG = "火箭筒", Racer = "赛车手", Radiator = "散热器",
+	Radio = "电台", Rare = "稀有", Reaper = "死神", Recruit = "新兵",
+	Refinery = "精炼厂", Resource = "资源", Revive = "复活", Revolver = "左轮",
+	Rifle = "步枪", Ring = "戒指", Rotor = "转子", Rubber = "橡胶", Ruby = "红宝石",
+	Rusty = "生锈", Sack = "麻袋", Salvager = "打捞者", Samurai = "武士",
+	Scanner = "扫描仪", Scepter = "权杖", Scout = "侦察兵", Sentry = "哨戒炮",
+	Settlement = "定居点", Shard = "碎片", Sheet = "板", Shotgun = "霰弹枪",
+	Silver = "白银", Skull = "头骨", Slow = "缓慢", Soul = "灵魂", Speed = "速度",
+	Spider = "蜘蛛", Spoon = "勺子", Spring = "弹簧", Staff = "法杖",
+	Standard = "标准", Statue = "雕像", Steel = "钢", Stick = "棒", Stool = "凳子",
+	Strength = "力量", Sword = "剑", Tank = "罐", Taunt = "嘲讽",
+	Teleporter = "传送器", Throne = "王座", Tiara = "头冠", Timekeeper = "计时员",
+	Tire = "轮胎", Tooth = "牙齿", Trombone = "长号", Trophy = "奖杯",
+	Vampire = "吸血鬼", Vase = "花瓶", Vision = "视觉", Void = "虚空",
+	Watch = "手表", Wax = "蜡", Web = "网", Wheel = "轮子", Widow = "寡妇",
+	Wire = "线", Witch = "女巫", Wooden = "木制", Worm = "蠕虫",
+	Wrench = "扳手", Wrenlows = "雷恩洛", AntiBlast = "防爆", BlackHole = "黑洞",
+	BountyHunter = "赏金猎人", NightVision = "夜视", SpeedBoots = "疾行靴",
+	MinerHelmet = "矿工头盔", Heartgem = "心晶", HealingElixir = "治疗药水",
+}
+
+local function splitTokens(name)
+	local out = {}
+	for part in string.gmatch(tostring(name), "[^_]+") do
+		local camel = string.gsub(part, "(%l)(%u)", "%1 %2")
+		for word in string.gmatch(camel, "%S+") do
+			word = string.gsub(word, "%d+$", "")
+			if word ~= "" then
+				table.insert(out, word)
+			end
+		end
+	end
+	return out
+end
+
+local oldZh = HUB.zhName
+HUB.zhName = function(name)
+	if not name or name == "" then
+		return "未知"
+	end
+	if exact[name] then
+		return exact[name]
+	end
+	local stripped = string.match(name, "^Ore_(.+)$")
+	if stripped and exact[stripped] then
+		return exact[stripped]
+	end
+	local parts = splitTokens(name)
+	local translated = {}
+	for _, part in ipairs(parts) do
+		local zh = tokens[part] or exact[part] or words[part]
+		if not zh then
+			return name
+		end
+		table.insert(translated, zh)
+	end
+	if #translated == 0 then
+		return name
+	end
+	return table.concat(translated)
+end
+
+
+-- 修正：Chest 在装备里是"胸甲"，在箱子里是"宝箱"
+local baseZh = HUB.zhName
+HUB.zhName = function(name)
+	local zh = baseZh(name)
+	if zh and zh ~= name and string.find(zh, "胸甲", 1, true) then
+		local def = HUB.getItemDef and HUB.getItemDef(name)
+		local cat = def and def.Attributes and def.Attributes.Category
+		if cat ~= "Armor" then
+			zh = (string.gsub(zh, "胸甲", "宝箱"))
+		end
+	end
+	return zh
+end
+
+end
+
+-- ===== 10_ui.luau =====
+do
+--[[
+	钻探至地球核心 · UI 基础（窗口 / 标签页 / 分组 / 基础控件）
+	自绘移动端友好的深色界面，不依赖任何外部库
+]]
+
+local TweenService      = game:GetService("TweenService")
+local UserInputService  = game:GetService("UserInputService")
+local Workspace         = game:GetService("Workspace")
+local RunService        = game:GetService("RunService")
+
+local T    = HUB.Theme
+local new  = HUB.new
+local tw   = HUB.tween
+
+local UI = {}
+HUB.UI = UI
+UI.SectionMethods = {}
+UI.Windows = {}
+UI.CurrentWindow = nil
+
+local function viewport()
+	local cam = Workspace.CurrentCamera
+	return cam and cam.ViewportSize or Vector2.new(1280, 720)
+end
+
+local function corner(inst, r)
+	local c = new("UICorner", { CornerRadius = UDim.new(0, r or 8), Parent = inst })
+	return c
+end
+
+local function stroke(inst, color, thickness, transparency)
+	return new("UIStroke", {
+		Color = color or T.Stroke,
+		Thickness = thickness or 1,
+		Transparency = transparency or 0,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		Parent = inst,
+	})
+end
+
+local function pad(inst, all, extra)
+	local props = {
+		PaddingTop = UDim.new(0, extra and extra.top or all),
+		PaddingBottom = UDim.new(0, extra and extra.bottom or all),
+		PaddingLeft = UDim.new(0, extra and extra.left or all),
+		PaddingRight = UDim.new(0, extra and extra.right or all),
+		Parent = inst,
+	}
+	return new("UIPadding", props)
+end
+
+-- 让某个 Frame 可以拖动（触摸 + 鼠标）
+local function makeDraggable(frame, handle, bounds)
+	local dragging = false
+	local dragStart, startPos
+	handle = handle or frame
+
+	handle.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = frame.Position
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					dragging = false
+				end
+			end)
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if not dragging then
+			return
+		end
+		if input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch then
+			local delta = input.Position - dragStart
+			frame.Position = UDim2.new(
+				startPos.X.Scale,
+				startPos.X.Offset + delta.X,
+				startPos.Y.Scale,
+				startPos.Y.Offset + delta.Y
+			)
+		end
+	end)
+end
+
+---------------------------------------------------------------------
+-- 通知
+---------------------------------------------------------------------
+UI.Notifications = nil
+function UI:notify(text, kind, duration)
+	if not UI.Notifications then
+		return
+	end
+	local color = T.Accent
+	if kind == "ok" then
+		color = T.Good
+	elseif kind == "err" then
+		color = T.Bad
+	elseif kind == "warn" then
+		color = T.Warn
+	end
+
+	local holder = UI.Notifications
+	local card = new("Frame", {
+		Size = UDim2.new(0, 210, 0, 34),
+		BackgroundColor3 = T.Card,
+		BackgroundTransparency = 0.05,
+		Parent = holder,
+	})
+	corner(card, 8)
+	stroke(card, color, 1, 0.4)
+	new("Frame", {
+		Size = UDim2.new(0, 3, 0.55, 0),
+		Position = UDim2.new(0, 6, 0, 8),
+		BackgroundColor3 = color,
+		BorderSizePixel = 0,
+		Parent = card,
+	})
+	local label = new("TextLabel", {
+		Size = UDim2.new(1, -22, 1, -8),
+		Position = UDim2.new(0, 16, 0, 4),
+		BackgroundTransparency = 1,
+		Font = T.Font,
+		Text = text,
+		TextColor3 = T.Text,
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextWrapped = true,
+		Parent = card,
+	})
+	new("UIListLayout", {
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 6),
+		HorizontalAlignment = Enum.HorizontalAlignment.Right,
+		Parent = holder,
+	})
+	card.Position = UDim2.new(1, 40, 0, 0)
+	tw(card, 0.25, { Position = UDim2.new(0, 0, 0, 0) })
+	task.delay(duration or 3, function()
+		if card and card.Parent then
+			tw(card, 0.2, { Position = UDim2.new(1, 40, 0, 0) })
+			task.wait(0.22)
+			card:Destroy()
+		end
+	end)
+end
+HUB.Notify = function(text, kind, duration)
+	pcall(UI.notify, UI, text, kind, duration)
+end
+
+---------------------------------------------------------------------
+-- 分组（Section）
+---------------------------------------------------------------------
+local Section = {}
+Section.__index = Section
+setmetatable(Section, {
+	__index = function(_, key)
+		return UI.SectionMethods[key]
+	end,
+})
+
+function Section:addCard(height)
+	local card = new("Frame", {
+		Size = UDim2.new(1, 0, 0, height),
+		BackgroundColor3 = T.Card,
+		BackgroundTransparency = 0.05,
+		Parent = self.holder,
+	})
+	corner(card, 8)
+	card.ClipsDescendants = false
+	return card
+end
+
+function Section:label(text, height)
+	local card = self:addCard(height or 26)
+	local label = new("TextLabel", {
+		Size = UDim2.new(1, -24, 1, 0),
+		Position = UDim2.new(0, 12, 0, 0),
+		BackgroundTransparency = 1,
+		Font = T.Font,
+		Text = text,
+		TextColor3 = T.TextDim,
+		TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextWrapped = true,
+		Parent = card,
+	})
+	return card, label
+end
+
+---------------------------------------------------------------------
+-- 窗口
+---------------------------------------------------------------------
+local Window = {}
+Window.__index = Window
+
+function UI:createWindow(cfg)
+	cfg = cfg or {}
+	local vp = viewport()
+	-- 适配任意屏幕（手机横屏时高度往往只有 350 左右）
+	local width = math.clamp(math.floor(vp.X * 0.94), 300, 540)
+	local height = math.min(math.clamp(math.floor(vp.Y * 0.9), 240, 560), vp.Y - 14)
+
+	local guiProps = {
+		Name = "EarthHubUI",
+		ResetOnSpawn = false,
+		IgnoreGuiInset = true,
+		DisplayOrder = 2147483647,
+		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+	}
+	local gui
+	local okGui = pcall(function()
+		guiProps.Parent = HUB.container()
+		gui = new("ScreenGui", guiProps)
+	end)
+	if not okGui or not gui then
+		guiProps.Parent = HUB.Player:WaitForChild("PlayerGui")
+		gui = new("ScreenGui", guiProps)
+	end
+
+	local main = new("Frame", {
+		Name = "Main",
+		Size = UDim2.new(0, width, 0, height),
+		Position = UDim2.new(0.5, -width / 2, 0.5, -height / 2),
+		BackgroundColor3 = T.Panel,
+		BackgroundTransparency = 0.03,
+		BorderSizePixel = 0,
+		Visible = false,
+		Parent = gui,
+	})
+	corner(main, 12)
+	stroke(main, T.Stroke, 1, 0.15)
+
+	-- 顶栏
+	local header = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 42),
+		BackgroundColor3 = T.Bg,
+		BackgroundTransparency = 0.15,
+		BorderSizePixel = 0,
+		Parent = main,
+	})
+	corner(header, 12)
+	new("Frame", {
+		Size = UDim2.new(1, 0, 0, 14),
+		Position = UDim2.new(0, 0, 1, -14),
+		BackgroundColor3 = T.Bg,
+		BackgroundTransparency = 0.15,
+		BorderSizePixel = 0,
+		Parent = header,
+	})
+	new("Frame", {
+		Size = UDim2.new(0, 4, 0, 18),
+		Position = UDim2.new(0, 14, 0.5, -9),
+		BackgroundColor3 = T.Accent,
+		BorderSizePixel = 0,
+		Parent = header,
+	})
+	new("TextLabel", {
+		Size = UDim2.new(1, -110, 0, 18),
+		Position = UDim2.new(0, 26, 0, 6),
+		BackgroundTransparency = 1,
+		Font = T.FontBold,
+		Text = cfg.Title or HUB.Name,
+		TextColor3 = T.Text,
+		TextSize = 14,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = header,
+	})
+	new("TextLabel", {
+		Size = UDim2.new(1, -110, 0, 14),
+		Position = UDim2.new(0, 26, 0, 24),
+		BackgroundTransparency = 1,
+		Font = T.Font,
+		Text = cfg.Subtitle or ("v" .. HUB.Version .. " · 地球"),
+		TextColor3 = T.TextDim,
+		TextSize = 11,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = header,
+	})
+
+	local function headerButton(xOffset, text, cb)
+		local btn = new("TextButton", {
+			Size = UDim2.new(0, 24, 0, 24),
+			Position = UDim2.new(1, xOffset, 0.5, -12),
+			BackgroundColor3 = T.Card,
+			BackgroundTransparency = 0.2,
+			Text = text,
+			Font = T.FontBold,
+			TextColor3 = T.TextDim,
+			TextSize = 14,
+			AutoButtonColor = false,
+			Parent = header,
+		})
+		corner(btn, 6)
+		btn.MouseEnter:Connect(function()
+			tw(btn, 0.12, { BackgroundColor3 = T.CardHover })
+		end)
+		btn.MouseLeave:Connect(function()
+			tw(btn, 0.12, { BackgroundColor3 = T.Card })
+		end)
+		btn.MouseButton1Click:Connect(cb)
+		return btn
+	end
+
+	-- 标签栏
+	local rail = new("ScrollingFrame", {
+		Size = UDim2.new(0, 96, 1, -54),
+		Position = UDim2.new(0, 6, 0, 48),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 0,
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		Parent = main,
+	})
+	new("UIListLayout", {
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 4),
+		Parent = rail,
+	})
+
+	-- 内容区
+	local content = new("Frame", {
+		Size = UDim2.new(1, -112, 1, -54),
+		Position = UDim2.new(0, 106, 0, 48),
+		BackgroundTransparency = 1,
+		Parent = main,
+	})
+
+	local win = setmetatable({
+		Gui = gui,
+		Main = main,
+		Header = header,
+		Rail = rail,
+		Content = content,
+		Tabs = {},
+		ActiveTab = nil,
+		Open = false,
+		Width = width,
+		Height = height,
+	}, Window)
+
+	-- 悬浮开关按钮
+	local float = new("TextButton", {
+		Size = UDim2.new(0, 38, 0, 38),
+		Position = UDim2.new(1, -50, 0, 92),
+		BackgroundColor3 = T.Accent,
+		BackgroundTransparency = 0.05,
+		Text = "≡",
+		Font = T.FontBold,
+		TextColor3 = Color3.new(1, 1, 1),
+		TextSize = 20,
+		AutoButtonColor = false,
+		Parent = gui,
+	})
+	corner(float, 19)
+	stroke(float, T.Accent, 2, 0.6)
+	makeDraggable(float, float)
+
+	local notifyHolder = new("Frame", {
+		Size = UDim2.new(0, 210, 0, 200),
+		Position = UDim2.new(1, -222, 0, 8),
+		BackgroundTransparency = 1,
+		Parent = gui,
+	})
+	UI.Notifications = notifyHolder
+	notifyHolder.Visible = false
+
+	function win:setOpen(open)
+		self.Open = open
+		if open then
+			main.Visible = true
+			main.Size = UDim2.new(0, self.Width, 0, self.Height * 0.85)
+			main.BackgroundTransparency = 1
+			tw(main, 0.22, {
+				Size = UDim2.new(0, self.Width, 0, self.Height),
+				BackgroundTransparency = 0.03,
+			}, Enum.EasingStyle.Back)
+			notifyHolder.Visible = true
+		else
+			tw(main, 0.14, { Size = UDim2.new(0, self.Width, 0, self.Height * 0.9) })
+			task.delay(0.14, function()
+				if not self.Open then
+					main.Visible = false
+					notifyHolder.Visible = false
+				end
+			end)
+		end
+	end
+
+	function win:toggle()
+		self:setOpen(not self.Open)
+	end
+
+	headerButton(-34, "−", function()
+		win:setOpen(false)
+	end)
+	headerButton(-8, "×", function()
+		win:setOpen(false)
+		HUB.Notify("Hub 已隐藏，点右侧圆钮可重新打开", "ok", 4)
+	end)
+
+	float.MouseButton1Click:Connect(function()
+		win:toggle()
+	end)
+
+	makeDraggable(main, header)
+
+	-- 快捷键（键鼠设备）
+	if cfg.Keybind then
+		HUB.connect(UserInputService.InputBegan, function(input, processed)
+			if processed then
+				return
+			end
+			if input.KeyCode == cfg.Keybind then
+				win:toggle()
+			end
+		end)
+	end
+
+	table.insert(UI.Windows, win)
+	UI.CurrentWindow = win
+	win:setOpen(true)
+	return win
+end
+
+function Window:tab(name, order)
+	local btn = new("TextButton", {
+		Size = UDim2.new(1, 0, 0, 32),
+		BackgroundColor3 = T.Card,
+		BackgroundTransparency = 0.55,
+		Text = name,
+		Font = T.Font,
+		TextColor3 = T.TextDim,
+		TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		AutoButtonColor = false,
+		LayoutOrder = order or (#self.Tabs + 1),
+		Parent = self.Rail,
+	})
+	corner(btn, 7)
+	local bar = new("Frame", {
+		Size = UDim2.new(0, 3, 0, 14),
+		Position = UDim2.new(0, 4, 0.5, -7),
+		BackgroundColor3 = T.Accent,
+		BorderSizePixel = 0,
+		BackgroundTransparency = 1,
+		Parent = btn,
+	})
+	new("UIPadding", { PaddingLeft = UDim.new(0, 12), Parent = btn })
+
+	local page = new("ScrollingFrame", {
+		Size = UDim2.new(1, 0, 1, 0),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 3,
+		ScrollBarImageColor3 = T.Stroke,
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		ElasticBehavior = Enum.ElasticBehavior.WhenScrollable,
+		Visible = false,
+		Parent = self.Content,
+	})
+	new("UIListLayout", {
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 10),
+		Parent = page,
+	})
+	new("UIPadding", { PaddingBottom = UDim.new(0, 18), PaddingRight = UDim.new(0, 8), Parent = page })
+
+	local tab = {
+		Name = name,
+		Page = page,
+		Button = btn,
+		Window = self,
+		Sections = {},
+	}
+
+	function tab:section(title, order)
+		local holder = new("Frame", {
+			Size = UDim2.new(1, 0, 0, 0),
+			BackgroundTransparency = 1,
+			AutomaticSize = Enum.AutomaticSize.Y,
+			LayoutOrder = order or (#self.Sections + 1),
+			Parent = page,
+		})
+		new("UIListLayout", {
+			SortOrder = Enum.SortOrder.LayoutOrder,
+			Padding = UDim.new(0, 5),
+			Parent = holder,
+		})
+		if title then
+			local headerRow = new("Frame", {
+				Size = UDim2.new(1, 0, 0, 16),
+				BackgroundTransparency = 1,
+				Parent = holder,
+			})
+			new("TextLabel", {
+				Size = UDim2.new(1, -8, 1, 0),
+				Position = UDim2.new(0, 8, 0, 0),
+				BackgroundTransparency = 1,
+				Font = T.FontBold,
+				Text = title,
+				TextColor3 = T.TextDim,
+				TextSize = 11,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Parent = headerRow,
+			})
+		end
+		local section = setmetatable({
+			Holder = holder,
+			Tab = self,
+			holder = holder,
+		}, Section)
+		table.insert(self.Sections, section)
+		return section
+	end
+
+	function tab:select()
+		for _, other in ipairs(self.Window.Tabs) do
+			if other == self then
+				other.Page.Visible = true
+				other.Button.BackgroundTransparency = 0
+				other.Button.TextColor3 = T.Text
+				other.Button.BackgroundColor3 = T.Accent
+				other.Button.BackgroundTransparency = 0.75
+				if other._bar then
+					other._bar.BackgroundTransparency = 0
+				end
+			else
+				other.Page.Visible = false
+				other.Button.BackgroundTransparency = 0.55
+				other.Button.TextColor3 = T.TextDim
+				other.Button.BackgroundColor3 = T.Card
+				if other._bar then
+					other._bar.BackgroundTransparency = 1
+				end
+			end
+		end
+		self.Window.ActiveTab = self
+	end
+
+	tab._bar = bar
+	btn.MouseButton1Click:Connect(function()
+		tab:select()
+	end)
+	btn.MouseEnter:Connect(function()
+		if self.ActiveTab ~= tab then
+			tw(btn, 0.12, { BackgroundTransparency = 0.3 })
+		end
+	end)
+	btn.MouseLeave:Connect(function()
+		if self.ActiveTab ~= tab then
+			tw(btn, 0.12, { BackgroundTransparency = 0.55 })
+		end
+	end)
+
+	table.insert(self.Tabs, tab)
+	tab:select()
+	return tab
+end
+
+---------------------------------------------------------------------
+-- 基础控件
+---------------------------------------------------------------------
+function Section:toggle(opts)
+	local card = self:addCard(44)
+	local on = opts.Default == true
+	HUB.Flags[opts.Flag or opts.Text] = on
+
+	new("TextLabel", {
+		Size = UDim2.new(1, -70, 1, 0),
+		Position = UDim2.new(0, 12, 0, 0),
+		BackgroundTransparency = 1,
+		Font = T.Font,
+		Text = opts.Text or "",
+		TextColor3 = T.Text,
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Parent = card,
+	})
+
+	local back = new("Frame", {
+		Size = UDim2.new(0, 38, 0, 20),
+		Position = UDim2.new(1, -50, 0.5, -10),
+		BackgroundColor3 = on and T.Accent or T.Stroke,
+		BorderSizePixel = 0,
+		Parent = card,
+	})
+	corner(back, 10)
+	local knob = new("Frame", {
+		Size = UDim2.new(0, 14, 0, 14),
+		Position = UDim2.new(0, on and 22 or 3, 0.5, -7),
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		BorderSizePixel = 0,
+		Parent = back,
+	})
+	corner(knob, 7)
+
+	local btn = new("TextButton", {
+		Size = UDim2.new(1, 0, 1, 0),
+		BackgroundTransparency = 1,
+		Text = "",
+		Parent = card,
+	})
+
+	local function apply(value, fire)
+		on = value
+		HUB.Flags[opts.Flag or opts.Text] = value
+		tw(back, 0.15, { BackgroundColor3 = value and T.Accent or T.Stroke })
+		tw(knob, 0.15, { Position = UDim2.new(0, value and 22 or 3, 0.5, -7) })
+		if fire and opts.Callback then
+			task.spawn(opts.Callback, value)
+		end
+	end
+
+	btn.MouseButton1Click:Connect(function()
+		apply(not on, true)
+	end)
+
+	if opts.Callback then
+		task.spawn(opts.Callback, on)
+	end
+
+	local api = {}
+	function api:set(value)
+		apply(value, true)
+	end
+	function api:get()
+		return on
+	end
+	return api
+end
+
+function Section:button(opts)
+	local card = self:addCard(38)
+	new("TextLabel", {
+		Size = UDim2.new(1, -24, 1, 0),
+		Position = UDim2.new(0, 12, 0, 0),
+		BackgroundTransparency = 1,
+		Font = T.Font,
+		Text = opts.Text or "",
+		TextColor3 = T.Text,
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Parent = card,
+	})
+	local btn = new("TextButton", {
+		Size = UDim2.new(1, 0, 1, 0),
+		BackgroundTransparency = 1,
+		Text = "",
+		Parent = card,
+	})
+	btn.MouseEnter:Connect(function()
+		tw(card, 0.12, { BackgroundColor3 = T.CardHover })
+	end)
+	btn.MouseLeave:Connect(function()
+		tw(card, 0.12, { BackgroundColor3 = T.Card })
+	end)
+	btn.MouseButton1Click:Connect(function()
+		if opts.Callback then
+			local ok, err = pcall(opts.Callback)
+			if not ok then
+				HUB.Notify(tostring(err), "err", 4)
+			end
+		end
+	end)
+	return btn
+end
+
+function Section:slider(opts)
+	local card = self:addCard(52)
+	local minV = opts.Min or 0
+	local maxV = opts.Max or 100
+	local value = math.clamp(opts.Default or minV, minV, maxV)
+	HUB.Flags[opts.Flag or opts.Text] = value
+
+	new("TextLabel", {
+		Size = UDim2.new(1, -80, 0, 16),
+		Position = UDim2.new(0, 12, 0, 7),
+		BackgroundTransparency = 1,
+		Font = T.Font,
+		Text = opts.Text or "",
+		TextColor3 = T.Text,
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = card,
+	})
+	local valueLabel = new("TextLabel", {
+		Size = UDim2.new(0, 60, 0, 16),
+		Position = UDim2.new(1, -68, 0, 7),
+		BackgroundTransparency = 1,
+		Font = T.FontBold,
+		Text = tostring(value),
+		TextColor3 = T.Accent,
+		TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Parent = card,
+	})
+
+	local track = new("Frame", {
+		Size = UDim2.new(1, -24, 0, 5),
+		Position = UDim2.new(0, 12, 0, 34),
+		BackgroundColor3 = T.Stroke,
+		BorderSizePixel = 0,
+		Parent = card,
+	})
+	corner(track, 3)
+	local fill = new("Frame", {
+		Size = UDim2.new((value - minV) / (maxV - minV), 0, 1, 0),
+		BackgroundColor3 = T.Accent,
+		BorderSizePixel = 0,
+		Parent = track,
+	})
+	corner(fill, 3)
+
+	local hitArea = new("TextButton", {
+		Size = UDim2.new(1, -24, 0, 26),
+		Position = UDim2.new(0, 12, 0, 24),
+		BackgroundTransparency = 1,
+		Text = "",
+		Parent = card,
+	})
+
+	local function setValue(v, fire)
+		value = math.clamp(v, minV, maxV)
+		if opts.Round then
+			value = math.floor(value + 0.5)
+		end
+		HUB.Flags[opts.Flag or opts.Text] = value
+		fill.Size = UDim2.new((value - minV) / (maxV - minV), 0, 1, 0)
+		valueLabel.Text = tostring(value)
+		if fire and opts.Callback then
+			task.spawn(opts.Callback, value)
+		end
+	end
+
+	local dragging = false
+	local function updateFromInput(input)
+		local abs = track.AbsolutePosition
+		local width = track.AbsoluteSize.X
+		local alpha = (input.Position.X - abs.X) / math.max(width, 1)
+		setValue(minV + (maxV - minV) * math.clamp(alpha, 0, 1), true)
+	end
+
+	hitArea.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			updateFromInput(input)
+		end
+	end)
+	HUB.connect(UserInputService.InputChanged, function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch) then
+			updateFromInput(input)
+		end
+	end)
+	HUB.connect(UserInputService.InputEnded, function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+
+	if opts.Callback then
+		task.spawn(opts.Callback, value)
+	end
+
+	local api = {}
+	function api:set(v)
+		setValue(v, true)
+	end
+	function api:get()
+		return value
+	end
+	return api
+end
+
+function Section:divider()
+	local card = self:addCard(1)
+	card.BackgroundColor3 = T.Stroke
+	card.BackgroundTransparency = 0.4
+	return card
+end
+
+end
+
+-- ===== 11_ui_extra.luau =====
+do
+--[[
+	钻探至地球核心 · UI 扩展控件（下拉框 / 输入框 / 按键绑定 / 段落）
+]]
+
+local UserInputService = game:GetService("UserInputService")
+
+local T   = HUB.Theme
+local new = HUB.new
+local tw  = HUB.tween
+
+local UI = HUB.UI
+local SectionMethods = UI.SectionMethods
+
+local function corner(inst, r)
+	return new("UICorner", { CornerRadius = UDim.new(0, r or 8), Parent = inst })
+end
+
+local function stroke(inst, color, thickness, transparency)
+	return new("UIStroke", {
+		Color = color or T.Stroke,
+		Thickness = thickness or 1,
+		Transparency = transparency or 0,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		Parent = inst,
+	})
+end
+
+---------------------------------------------------------------------
+-- 下拉框
+---------------------------------------------------------------------
+function SectionMethods:dropdown(opts)
+	local values = opts.Values or {}
+	local current = opts.Default or values[1]
+
+	local card = self:addCard(40)
+	card.ClipsDescendants = true
+
+	new("TextLabel", {
+		Size = UDim2.new(0.5, -18, 1, 0),
+		Position = UDim2.new(0, 12, 0, 0),
+		BackgroundTransparency = 1,
+		Font = T.Font,
+		Text = opts.Text or "",
+		TextColor3 = T.Text,
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = card,
+	})
+
+	local valueLabel = new("TextLabel", {
+		Size = UDim2.new(0.5, -22, 1, 0),
+		Position = UDim2.new(0.5, 6, 0, 0),
+		BackgroundTransparency = 1,
+		Font = T.Font,
+		Text = tostring(current),
+		TextColor3 = T.Accent,
+		TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Parent = card,
+	})
+
+	local list = new("Frame", {
+		Size = UDim2.new(1, -16, 0, 0),
+		Position = UDim2.new(0, 8, 0, 40),
+		BackgroundColor3 = T.Bg,
+		BackgroundTransparency = 0.25,
+		ClipsDescendants = true,
+		Parent = card,
+	})
+	corner(list, 6)
+	new("UIListLayout", {
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 2),
+		Parent = list,
+	})
+	new("UIPadding", {
+		PaddingTop = UDim.new(0, 4),
+		PaddingBottom = UDim.new(0, 4),
+		Parent = list,
+	})
+
+	local expanded = false
+	local rowHeight = 26
+
+	local function buildRows(listValues)
+		for _, child in ipairs(list:GetChildren()) do
+			if child:IsA("TextButton") then
+				child:Destroy()
+			end
+		end
+		for i, v in ipairs(listValues) do
+			local row = new("TextButton", {
+				Size = UDim2.new(1, 0, 0, rowHeight),
+				BackgroundTransparency = 1,
+				Text = "   " .. tostring(v),
+				Font = T.Font,
+				TextColor3 = T.TextDim,
+				TextSize = 12,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				LayoutOrder = i,
+				AutoButtonColor = false,
+				Parent = list,
+			})
+			row.MouseEnter:Connect(function()
+				tw(row, 0.1, { BackgroundTransparency = 0.85, BackgroundColor3 = T.Accent })
+			end)
+			row.MouseLeave:Connect(function()
+				tw(row, 0.1, { BackgroundTransparency = 1 })
+			end)
+			row.MouseButton1Click:Connect(function()
+				current = v
+				valueLabel.Text = tostring(v)
+				HUB.Flags[opts.Flag or opts.Text] = v
+				expanded = false
+				card.Size = UDim2.new(1, 0, 0, 40)
+				list.Size = UDim2.new(1, -16, 0, 0)
+				if opts.Callback then
+					task.spawn(opts.Callback, v)
+				end
+			end)
+		end
+	end
+	buildRows(values)
+
+	local btn = new("TextButton", {
+		Size = UDim2.new(1, 0, 0, 40),
+		BackgroundTransparency = 1,
+		Text = "",
+		Parent = card,
+	})
+	btn.MouseButton1Click:Connect(function()
+		expanded = not expanded
+		local target = expanded and (#(HUB.Flags[opts.Text .. "_values"] or values) * (rowHeight + 2) + 8) or 0
+		card.Size = UDim2.new(1, 0, 0, 40 + target)
+		list.Size = UDim2.new(1, -16, 0, target)
+	end)
+
+	HUB.Flags[opts.Flag or opts.Text] = current
+	if opts.Callback then
+		task.spawn(opts.Callback, current)
+	end
+
+	local api = {}
+	function api:set(v)
+		current = v
+		valueLabel.Text = tostring(v)
+		HUB.Flags[opts.Flag or opts.Text] = v
+		if opts.Callback then
+			task.spawn(opts.Callback, v)
+		end
+	end
+	function api:refresh(listValues)
+		local keep = current
+		values = listValues
+		buildRows(listValues)
+		for _, v in ipairs(listValues) do
+			if v == keep then
+				current = keep
+				valueLabel.Text = tostring(keep)
+				return
+			end
+		end
+		current = listValues[1]
+		valueLabel.Text = tostring(current)
+	end
+	function api:refreshValues(listValues)
+		values = listValues
+		buildRows(listValues)
+	end
+	function api:get()
+		return current
+	end
+	return api
+end
+
+---------------------------------------------------------------------
+-- 输入框
+---------------------------------------------------------------------
+function SectionMethods:input(opts)
+	local card = self:addCard(40)
+
+	local box = new("TextBox", {
+		Size = UDim2.new(1, -24, 0, 30),
+		Position = UDim2.new(0, 12, 0.5, -15),
+		BackgroundColor3 = T.Bg,
+		BackgroundTransparency = 0.35,
+		Font = T.Font,
+		Text = "",
+		PlaceholderText = opts.Placeholder or (opts.Text or ""),
+		PlaceholderColor3 = T.TextDim,
+		TextColor3 = T.Text,
+		TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ClearTextOnFocus = false,
+		Parent = card,
+	})
+	corner(box, 6)
+	new("UIPadding", { PaddingLeft = UDim.new(0, 8), Parent = box })
+	stroke(box, T.Stroke, 1, 0.3)
+
+	box.Focused:Connect(function()
+		box.BackgroundTransparency = 0.15
+	end)
+	box.FocusLost:Connect(function(enter)
+		box.BackgroundTransparency = 0.35
+		if opts.Callback then
+			pcall(opts.Callback, box.Text, enter)
+		end
+	end)
+
+	local api = {}
+	function api:get()
+		return box.Text
+	end
+	function api:set(v)
+		box.Text = v
+	end
+	return api
+end
+
+---------------------------------------------------------------------
+-- 按键绑定
+---------------------------------------------------------------------
+function SectionMethods:keybind(opts)
+	local card = self:addCard(40)
+	local key = opts.Default
+	local listening = false
+
+	new("TextLabel", {
+		Size = UDim2.new(1, -110, 1, 0),
+		Position = UDim2.new(0, 12, 0, 0),
+		BackgroundTransparency = 1,
+		Font = T.Font,
+		Text = opts.Text or "快捷键",
+		TextColor3 = T.Text,
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = card,
+	})
+
+	local keyLabel = new("TextButton", {
+		Size = UDim2.new(0, 92, 0, 26),
+		Position = UDim2.new(1, -100, 0.5, -13),
+		BackgroundColor3 = T.Bg,
+		BackgroundTransparency = 0.3,
+		Font = T.FontBold,
+		Text = key and key.Name or "未设置",
+		TextColor3 = T.Accent,
+		TextSize = 11,
+		AutoButtonColor = false,
+		Parent = card,
+	})
+	corner(keyLabel, 6)
+	stroke(keyLabel, T.Stroke, 1, 0.3)
+
+	keyLabel.MouseButton1Click:Connect(function()
+		listening = true
+		keyLabel.Text = "按一个键…"
+	end)
+
+	table.insert(HUB.Conns, UserInputService.InputBegan:Connect(function(input)
+		if not listening then
+			return
+		end
+		if input.UserInputType == Enum.UserInputType.Keyboard then
+			key = input.KeyCode
+			listening = false
+			keyLabel.Text = key.Name
+			HUB.Flags[opts.Flag or opts.Text] = key
+			if opts.Callback then
+				task.spawn(opts.Callback, key)
+			end
+		end
+	end))
+
+	HUB.Flags[opts.Flag or opts.Text] = key
+	local api = {}
+	function api:get()
+		return key
+	end
+	return api
+end
+
+---------------------------------------------------------------------
+-- 段落 / 说明
+---------------------------------------------------------------------
+function SectionMethods:paragraph(text, height)
+	local card = self:addCard(height or 44)
+	local label = new("TextLabel", {
+		Size = UDim2.new(1, -24, 1, -10),
+		Position = UDim2.new(0, 12, 0, 5),
+		BackgroundTransparency = 1,
+		Font = T.Font,
+		Text = text,
+		TextColor3 = T.TextDim,
+		TextSize = 11,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Parent = card,
+	})
+	return label
+end
+
+
+---------------------------------------------------------------------
+-- 颜色选择器（原生界面用 RGB 三个滑块模拟）
+---------------------------------------------------------------------
+function SectionMethods:colorpicker(opts)
+	local default = opts.Default or Color3.fromRGB(255, 255, 255)
+	local r = math.floor(default.R * 255)
+	local g = math.floor(default.G * 255)
+	local b = math.floor(default.B * 255)
+	local api = {}
+
+	local function apply()
+		if opts.Callback then
+			task.spawn(opts.Callback, Color3.fromRGB(r, g, b))
+		end
+	end
+
+	self:slider({
+		Text = tostring(opts.Text or "颜色") .. " · 红",
+		Min = 0,
+		Max = 255,
+		Default = r,
+		Callback = function(v)
+			r = v
+			apply()
+		end,
+	})
+	self:slider({
+		Text = tostring(opts.Text or "颜色") .. " · 绿",
+		Min = 0,
+		Max = 255,
+		Default = g,
+		Callback = function(v)
+			g = v
+			apply()
+		end,
+	})
+	self:slider({
+		Text = tostring(opts.Text or "颜色") .. " · 蓝",
+		Min = 0,
+		Max = 255,
+		Default = b,
+		Callback = function(v)
+			b = v
+			apply()
+		end,
+	})
+
+	function api:set(color)
+		r = math.floor(color.R * 255)
+		g = math.floor(color.G * 255)
+		b = math.floor(color.B * 255)
+		apply()
+	end
+	function api:get()
+		return Color3.fromRGB(r, g, b)
+	end
+	apply()
+	return api
+end
+
+end
+
+-- ===== 15_toolhook.luau =====
+do
+--[[
+	钻探至地球核心 · 客户端工具对象捕获
+	游戏的自定义挥砍只认真实输入；拿到客户端工具对象后可以程序化挥砍
+	（实测：BeginMeleeSwing + ResolveMeleeSwing 能真挖掉矿）
+]]
+
+local lp = game:GetService("Players").LocalPlayer
+
+HUB.ClientTools = HUB.ClientTools or {}
+getgenv().__earthTools = getgenv().__earthTools or {}
+
+-- 上次会话捕获到的对象，直接接回来（重载不丢）
+for kind, inst in pairs(getgenv().__earthTools) do
+	if type(inst) == "table" and inst.Tool then
+		HUB.ClientTools[kind] = inst
+	end
+end
+if type(getgenv().__cap) == "table" and getgenv().__cap.Tool then
+	HUB.ClientTools["Pickaxe"] = HUB.ClientTools["Pickaxe"] or getgenv().__cap
+end
+
+local function remember(kind, inst)
+	if not inst then
+		return
+	end
+	HUB.ClientTools[kind] = inst
+	if inst.Tool then
+		HUB.ClientTools[inst.Tool.Name] = inst
+		getgenv().__earthTools[inst.Tool.Name] = inst
+	end
+	getgenv().__earthTools[kind] = inst
+end
+
+local MODULES = {
+	Pickaxe = "Pickaxe",
+	Sword = "Sword",
+	Champions_Hammer = "Champions_Hammer",
+}
+
+local function installHook(kind, moduleName)
+	local ok, mod = pcall(require, lp.PlayerScripts.SharedPlanets.Classes.Tools[moduleName])
+	if not ok or type(mod) ~= "table" then
+		return false
+	end
+	if mod.__earthHook then
+		return true
+	end
+	local origHit = mod.HitAtSlashStart
+	if type(origHit) == "function" then
+		mod.HitAtSlashStart = function(self, id)
+			remember(kind, self)
+			return origHit(self, id)
+		end
+	end
+	local origNew = mod.new
+	if type(origNew) == "function" then
+		mod.new = function(...)
+			local inst = origNew(...)
+			remember(kind, inst)
+			return inst
+		end
+	end
+	mod.__earthHook = true
+	return true
+end
+
+for kind, moduleName in pairs(MODULES) do
+	pcall(installHook, kind, moduleName)
+end
+
+-- 拿某个工具类别的客户端对象（没有就返回 nil）
+function HUB.getToolInstance(kind)
+	if kind == "Pickaxe" then
+		for name, inst in pairs(HUB.ClientTools) do
+			if string.find(name, "Pickaxe") and inst.Tool and inst.Tool.Parent == lp.Character then
+				return inst
+			end
+		end
+		for _, key in ipairs({ "Pickaxe", "Pickaxe_Wooden", "Pickaxe_Rusty", "Pickaxe_Steel", "Pickaxe_Gold", "Pickaxe_Diamond" }) do
+			local inst = HUB.ClientTools[key]
+			if inst and inst.Tool and inst.Tool.Parent == lp.Character then
+				return inst
+			end
+		end
+	elseif kind == "Sword" then
+		for name, inst in pairs(HUB.ClientTools) do
+			if string.find(name, "Sword") and inst.Tool and inst.Tool.Parent == lp.Character then
+				return inst
+			end
+		end
+	end
+	local inst = HUB.ClientTools[kind]
+	if inst and inst.Tool and inst.Tool.Parent == lp.Character then
+		return inst
+	end
+	return nil
+end
+
+-- 程序化挥一下（先 BeginSwing 握手，再 Resolve 触发命中）
+function HUB.clientSwing(kind, waitBeforeResolve)
+	local inst = HUB.getToolInstance(kind)
+	if not inst then
+		return false
+	end
+	local ok = pcall(function()
+		inst:BeginMeleeSwing()
+	end)
+	if not ok then
+		return false
+	end
+	task.wait(waitBeforeResolve or 0.12)
+	pcall(function()
+		inst:ResolveMeleeSwing()
+	end)
+	return true
+end
+
+end
+
+-- ===== 20_movement.luau =====
+do
+--[[
+	钻探至地球核心 · 角色 / 移动 模块
+]]
+
+local RunService       = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace        = game:GetService("Workspace")
+
+local S = HUB.State
+
+S.WalkSpeed = 16
+S.JumpPower = 50
+S.InfiniteJump = false
+S.Fly = false
+S.Noclip = false
+
+---------------------------------------------------------------------
+-- 走路速度
+---------------------------------------------------------------------
+function HUB.setWalkSpeed(value)
+	S.WalkSpeed = value
+	local hum = HUB.humanoid()
+	if hum then
+		pcall(function()
+			hum.WalkSpeed = value
+		end)
+	end
+end
+
+function HUB.applyJump(value)
+	S.JumpPower = value
+	local hum = HUB.humanoid()
+	if hum then
+		pcall(function()
+			hum.UseJumpPower = true
+			hum.JumpPower = value
+		end)
+	end
+end
+
+-- 角色重生后重新应用当前设置
+HUB.connect(HUB.Player.CharacterAdded, function(char)
+	task.wait(0.6)
+	if S.WalkSpeed ~= 16 then
+		HUB.setWalkSpeed(S.WalkSpeed)
+	end
+	if S.JumpPower ~= 50 then
+		HUB.applyJump(S.JumpPower)
+	end
+end)
+
+---------------------------------------------------------------------
+-- 移动速度锁定（部分游戏会每帧写回 16）
+---------------------------------------------------------------------
+HUB.connect(RunService.Heartbeat, function()
+	if not S.WalkSpeedLocked then
+		return
+	end
+	local hum = HUB.humanoid()
+	if hum and math.abs(hum.WalkSpeed - S.WalkSpeed) > 0.5 then
+		pcall(function()
+			hum.WalkSpeed = S.WalkSpeed
+		end)
+	end
+end)
+
+---------------------------------------------------------------------
+-- 无限跳跃
+---------------------------------------------------------------------
+HUB.connect(UserInputService.InputBegan, function(input, processed)
+	if processed or not S.InfiniteJump then
+		return
+	end
+	if input.KeyCode == Enum.KeyCode.Space or input.KeyCode == Enum.KeyCode.ButtonA then
+		local hum = HUB.humanoid()
+		if hum then
+			pcall(function()
+				hum:ChangeState(Enum.HumanoidStateType.Jumping)
+			end)
+		end
+	end
+end)
+
+-- 移动端：轻点屏幕也可触发（避免误触，只在无限跳开启时生效且需要落地）
+HUB.connect(UserInputService.TouchTap, function()
+	if not S.InfiniteJump then
+		return
+	end
+	local hum = HUB.humanoid()
+	if hum and hum:GetState() ~= Enum.HumanoidStateType.Freefall then
+		pcall(function()
+			hum:ChangeState(Enum.HumanoidStateType.Jumping)
+		end)
+	end
+end)
+
+---------------------------------------------------------------------
+-- 穿墙
+---------------------------------------------------------------------
+local noclipConn = nil
+function HUB.setNoclip(enabled)
+	S.Noclip = enabled
+	if enabled and not noclipConn then
+		noclipConn = RunService.Stepped:Connect(function()
+			local char = HUB.Player.Character
+			if not char then
+				return
+			end
+			for _, part in ipairs(char:GetDescendants()) do
+				if part:IsA("BasePart") and part.CanCollide then
+					part.CanCollide = false
+				end
+			end
+		end)
+	elseif not enabled and noclipConn then
+		noclipConn:Disconnect()
+		noclipConn = nil
+		local char = HUB.Player.Character
+		if char then
+			for _, part in ipairs(char:GetDescendants()) do
+				if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and part.Name ~= "UpperTorso" then
+					pcall(function()
+						part.CanCollide = true
+					end)
+				end
+			end
+		end
+	end
+end
+
+---------------------------------------------------------------------
+-- 飞行
+---------------------------------------------------------------------
+local flyConn = nil
+local flyBV = nil
+S.FlySpeed = 60
+
+function HUB.setFly(enabled)
+	S.Fly = enabled
+	local char = HUB.Player.Character
+	if not char then
+		return
+	end
+	local root = HUB.rootPart()
+	local hum = HUB.humanoid()
+	if not root or not hum then
+		return
+	end
+	if enabled then
+		if flyBV then
+			flyBV:Destroy()
+		end
+		flyBV = Instance.new("BodyVelocity")
+		flyBV.Name = "EarthHubFly"
+		flyBV.MaxForce = Vector3.new(1, 1, 1) * 1e5
+		flyBV.Velocity = Vector3.zero
+		flyBV.Parent = root
+		if flyConn then
+			flyConn:Disconnect()
+		end
+		flyConn = RunService.RenderStepped:Connect(function()
+			local r = HUB.rootPart()
+			if not r or not S.Fly then
+				return
+			end
+			local cam = Workspace.CurrentCamera
+			if not cam then
+				return
+			end
+			local move = Vector3.zero
+			local forward = cam.CFrame.LookVector
+			local right = cam.CFrame.RightVector
+			if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+				move = move + forward
+			end
+			if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+				move = move - forward
+			end
+			if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+				move = move + right
+			end
+			if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+				move = move - right
+			end
+			if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+				move = move + Vector3.new(0, 1, 0)
+			end
+			if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+				move = move - Vector3.new(0, 1, 0)
+			end
+			-- 移动端：摇杆方向也参与飞行
+			if move.Magnitude < 0.01 and UserInputService.TouchEnabled then
+				if hum.MoveDirection.Magnitude > 0.05 then
+					move = hum.MoveDirection
+				end
+			end
+			if flyBV then
+				flyBV.Velocity = move.Unit * S.FlySpeed * (move.Magnitude > 0 and 1 or 0)
+			end
+		end)
+		pcall(function()
+			hum.PlatformStand = true
+		end)
+	else
+		if flyConn then
+			flyConn:Disconnect()
+			flyConn = nil
+		end
+		if flyBV then
+			flyBV:Destroy()
+			flyBV = nil
+		end
+		pcall(function()
+			hum.PlatformStand = false
+		end)
+	end
+end
+
+---------------------------------------------------------------------
+-- 防摔死 / 血量保护（客户端，尽量不让传送把自己摔死）
+---------------------------------------------------------------------
+S.FallProtect = false
+S.HealthLock = false
+
+HUB.connect(RunService.Heartbeat, function()
+	local char = HUB.Player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not hum or not root then
+		return
+	end
+	if S.FallProtect then
+		local v = root.Velocity
+		if v.Y < -90 then
+			-- 快落地时刹车，避免摔死
+			local params = RaycastParams.new()
+			params.FilterDescendantsInstances = { char }
+			params.FilterType = Enum.RaycastFilterType.Exclude
+			local hit = Workspace:Raycast(root.Position, Vector3.new(0, -60, 0), params)
+			if hit and (root.Position.Y - hit.Position.Y) < 30 then
+				root.Velocity = Vector3.new(v.X * 0.2, -8, v.Z * 0.2)
+			end
+		end
+	end
+	if S.HealthLock and hum.Health < hum.MaxHealth then
+		pcall(function()
+			hum.Health = hum.MaxHealth
+		end)
+	end
+end)
+
+end
+
+-- ===== 30_esp.luau =====
+do
+--[[
+	钻探至地球核心 · 绘制（高亮 + 名字 + 距离）
+	绘制总开关在最上面；高亮只是绘制的一种，可单独关
+	掉落物可按分类 / 具体物品筛选，宝箱分高级和普通
+]]
+
+local RunService = game:GetService("RunService")
+
+local S = HUB.State
+S.ESP = {
+	DrawEnabled = true,   -- 绘制总开关
+	Highlight = true,     -- 高亮（绘制的一种）
+	ShowName = false,     -- 名字
+	ShowDistance = false, -- 距离
+
+	Enemies = true,
+	Boss = true,
+	Ores = true,
+	Items = true,
+	Chests = false,
+	Gates = false,
+
+	Cats = {              -- 每一类掉落物单独开关
+		["武器"] = true,
+		["镐子"] = true,
+		["医疗包"] = true,
+		["药水"] = true,
+		["子弹"] = true,
+		["装备"] = true,
+		["卖钱"] = true,
+		["尸体"] = true,
+		["其他"] = true,
+	},
+	Filters = {},         -- [分类] = { [中文名] = true }；空 = 该类全部
+	OreFilter = {},       -- 空 = 全部；否则只画这些矿
+	ChestFilter = {},     -- 空 = 全部；否则只画这些宝箱（中文名）
+
+	Filled = true,
+	FillTransparency = 0.65,
+	MaxDistance = 600,
+	OreDistance = 400,
+}
+
+HUB.ESPColors = HUB.ESPColors or {}
+local defaultColors = {
+	Enemy = Color3.fromRGB(255, 70, 70),
+	Boss = Color3.fromRGB(255, 60, 200),
+	Ore = Color3.fromRGB(255, 200, 40),
+	Item = Color3.fromRGB(90, 230, 140),
+	ItemWeapon = Color3.fromRGB(255, 140, 60),
+	ItemPickaxe = Color3.fromRGB(200, 170, 255),
+	ItemMed = Color3.fromRGB(90, 220, 120),
+	ItemPotion = Color3.fromRGB(150, 130, 255),
+	ItemAmmo = Color3.fromRGB(240, 220, 120),
+	ItemGear = Color3.fromRGB(120, 200, 255),
+	ItemValuable = Color3.fromRGB(255, 190, 90),
+	Chest = Color3.fromRGB(185, 120, 255),
+	ChestHigh = Color3.fromRGB(255, 200, 60),
+	ChestLow = Color3.fromRGB(150, 120, 200),
+	Gate = Color3.fromRGB(90, 180, 255),
+	NPC = Color3.fromRGB(240, 240, 240),
+}
+for k, v in pairs(defaultColors) do
+	if not HUB.ESPColors[k] then
+		HUB.ESPColors[k] = v
+	end
+end
+local COLORS = HUB.ESPColors
+
+local highlights = {}
+local refreshAt = 0
+
+S.Values = S.Values or { DrawTotal = 0, PickTotal = 0 }
+
+local function isEmptySet(t)
+	return t == nil or next(t) == nil
+end
+
+local function inSet(set, value)
+	return isEmptySet(set) or set[value] == true
+end
+
+---------------------------------------------------------------------
+-- 控件生成
+---------------------------------------------------------------------
+local function makeHighlight(model, color)
+	local hl = Instance.new("Highlight")
+	hl.Name = "EarthHubHL"
+	hl.Adornee = model
+	hl.FillColor = color
+	hl.OutlineColor = color
+	hl.FillTransparency = S.ESP.Filled and S.ESP.FillTransparency or 1
+	hl.OutlineTransparency = 0
+	hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	hl.Parent = model
+	return hl
+end
+
+local function makeLabel(part)
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "EarthHubTxt"
+	billboard.Adornee = part
+	billboard.Size = UDim2.new(0, 130, 0, 34)
+	billboard.StudsOffsetWorldSpace = Vector3.new(0, 2.6, 0)
+	billboard.AlwaysOnTop = true
+	billboard.MaxDistance = 500
+	billboard.Parent = part
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Size = UDim2.new(1, 0, 0, 18)
+	nameLabel.Font = Enum.Font.GothamBold
+	nameLabel.TextScaled = true
+	nameLabel.TextColor3 = Color3.new(1, 1, 1)
+	nameLabel.TextStrokeTransparency = 0
+	nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+	nameLabel.Parent = billboard
+
+	local distLabel = Instance.new("TextLabel")
+	distLabel.BackgroundTransparency = 1
+	distLabel.Size = UDim2.new(1, 0, 0, 14)
+	distLabel.Position = UDim2.new(0, 0, 0, 18)
+	distLabel.Font = Enum.Font.GothamMedium
+	distLabel.TextScaled = true
+	distLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+	distLabel.TextStrokeTransparency = 0
+	distLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+	distLabel.Parent = billboard
+
+	return billboard, nameLabel, distLabel
+end
+
+local function destroyEntry(model)
+	local entry = highlights[model]
+	if not entry then
+		return
+	end
+	if entry.hl then
+		pcall(function()
+			entry.hl:Destroy()
+		end)
+	end
+	if entry.billboard then
+		pcall(function()
+			entry.billboard:Destroy()
+		end)
+	end
+	highlights[model] = nil
+end
+
+local function ensureEntry(model, part, color, name, distance)
+	local entry = highlights[model]
+	if not entry then
+		entry = {}
+		highlights[model] = entry
+	end
+
+	if S.ESP.Highlight then
+		if not entry.hl or not entry.hl.Parent then
+			pcall(function()
+				entry.hl = makeHighlight(model, color)
+			end)
+		end
+		if entry.hl then
+			entry.hl.FillColor = color
+			entry.hl.OutlineColor = color
+			entry.hl.FillTransparency = S.ESP.Filled and S.ESP.FillTransparency or 1
+		end
+	elseif entry.hl then
+		pcall(function()
+			entry.hl:Destroy()
+		end)
+		entry.hl = nil
+	end
+
+	local hasName = (name ~= nil and name ~= "")
+	local hasDist = (distance ~= nil and distance ~= "") and S.ESP.ShowDistance
+	if hasName or hasDist then
+		if not entry.billboard and part then
+			pcall(function()
+				entry.billboard, entry.nameLabel, entry.distLabel = makeLabel(part)
+			end)
+		end
+		if entry.billboard then
+			entry.billboard.Enabled = true
+			entry.nameLabel.Visible = hasName
+			entry.nameLabel.Text = name or ""
+			entry.nameLabel.TextColor3 = color
+			entry.nameLabel.Size = UDim2.new(1, 0, 0, hasName and 18 or 0)
+			entry.distLabel.Visible = hasDist
+			entry.distLabel.Text = distance or ""
+			entry.distLabel.Position = UDim2.new(0, 0, 0, hasName and 18 or 0)
+			entry.distLabel.Size = UDim2.new(1, 0, 0, hasDist and 14 or 0)
+		end
+	elseif entry.billboard then
+		entry.billboard.Enabled = false
+	end
+
+	if not S.ESP.Highlight and (not entry.billboard or not entry.billboard.Enabled) then
+		destroyEntry(model)
+	end
+end
+
+---------------------------------------------------------------------
+-- 收集目标
+---------------------------------------------------------------------
+local function collect()
+	local list = {}
+	S.Values.DrawTotal = 0
+	if not S.ESP.DrawEnabled then
+		return list
+	end
+	local myRoot = HUB.rootPart()
+	if not myRoot then
+		return list
+	end
+
+	if S.ESP.Boss then
+		for _, b in ipairs(HUB.getBosses(2000)) do
+			if b.dist <= S.ESP.MaxDistance * 2 then
+				list[#list + 1] = {
+					model = b.model, part = b.part, color = COLORS.Boss,
+					text = HUB.zhName(b.model.Name), dist = b.dist, nameable = true,
+				}
+			end
+		end
+	end
+
+	if S.ESP.Enemies then
+		for _, e in ipairs(HUB.getEnemies(S.ESP.MaxDistance)) do
+			if e.hum.MaxHealth < 2000000 then
+				list[#list + 1] = {
+					model = e.model, part = e.part, color = COLORS.Enemy,
+					text = HUB.zhName(e.model.Name), dist = e.dist, nameable = true,
+				}
+			end
+		end
+	end
+
+	if S.ESP.Ores then
+		for _, o in ipairs(HUB.getOres(S.ESP.OreDistance)) do
+			local zhType = HUB.zhOre(o.oreType)
+			if inSet(S.ESP.OreFilter, zhType) then
+				list[#list + 1] = {
+					model = o.part, part = o.part, color = COLORS.Ore,
+					text = zhType, dist = o.dist, nameable = true,
+				}
+			end
+		end
+	end
+
+	do
+		for _, it in ipairs(HUB.getDroppedItems(S.ESP.MaxDistance)) do
+			local zh = HUB.zhName(it.name)
+			local cat = HUB.itemCategory(it.name)
+			local catFilter = S.ESP.Filters[cat]
+			if S.ESP.Cats[cat] and (catFilter == nil or next(catFilter) == nil or catFilter[zh] == true) then
+				local color = COLORS.Item
+				if cat == "武器" then
+					color = COLORS.ItemWeapon
+				elseif cat == "镐子" then
+					color = COLORS.ItemPickaxe
+				elseif cat == "医疗包" then
+					color = COLORS.ItemMed
+				elseif cat == "药水" then
+					color = COLORS.ItemPotion
+				elseif cat == "子弹" then
+					color = COLORS.ItemAmmo
+				elseif cat == "装备" then
+					color = COLORS.ItemGear
+				elseif cat == "卖钱" then
+					color = COLORS.ItemValuable
+				end
+				if cat == "卖钱" then
+					local value = HUB.itemValue(it.model)
+					S.Values.DrawTotal = S.Values.DrawTotal + value
+					if value > 0 then
+						zh = zh .. " " .. HUB.formatNum(value)
+					end
+				end
+				list[#list + 1] = { model = it.model, part = it.part, color = color, text = zh, dist = it.dist, nameable = true }
+			end
+		end
+	end
+
+	if S.ESP.Chests then
+		for _, c in ipairs(HUB.getChests(S.ESP.MaxDistance)) do
+			local tier = HUB.chestTier(c.name)
+			local zhChest = HUB.zhName(c.name)
+			if inSet(S.ESP.ChestFilter, zhChest) then
+				local color = (tier == "高级") and COLORS.ChestHigh or COLORS.ChestLow
+				list[#list + 1] = {
+					model = c.model, part = c.part, color = color,
+					text = zhChest, dist = c.dist, nameable = true,
+				}
+			end
+		end
+	end
+
+	if S.ESP.Gates then
+		for _, g in ipairs(HUB.getGates()) do
+			if g.dist <= S.ESP.MaxDistance * 2 then
+				list[#list + 1] = {
+					model = g.model, part = g.part, color = COLORS.Gate,
+					text = "第" .. tostring(g.tier) .. "层地牢", dist = g.dist, nameable = true,
+				}
+			end
+		end
+	end
+
+	return list
+end
+
+local function refresh()
+	local list = collect()
+	local seen = {}
+	for _, item in ipairs(list) do
+		local nameText = item.text
+		local distText = math.floor(item.dist) .. " 米"
+		ensureEntry(item.model, item.part, item.color, nameText, distText)
+		seen[item.model] = true
+	end
+	for model in pairs(highlights) do
+		if not seen[model] or not model.Parent then
+			destroyEntry(model)
+		end
+	end
+end
+
+HUB.connect(RunService.RenderStepped, function()
+	local now = os.clock()
+	if now - refreshAt < 0.3 then
+		return
+	end
+	refreshAt = now
+	local ok = pcall(refresh)
+	if not ok then
+		for model in pairs(highlights) do
+			destroyEntry(model)
+		end
+	end
+end)
+
+function HUB.clearHighlights()
+	for model in pairs(highlights) do
+		destroyEntry(model)
+	end
+end
+
+-- 现在地上有哪些物品（给筛选下拉框用）
+function HUB.listGroundItemNames(maxDistance)
+	local seen, out = {}, {}
+	for _, it in ipairs(HUB.getDroppedItems(maxDistance or 4000)) do
+		local zh = HUB.zhName(it.name)
+		if not seen[zh] then
+			seen[zh] = true
+			out[#out + 1] = zh
+		end
+	end
+	table.sort(out)
+	return out
+end
+
+HUB.cleanup(function()
+	HUB.clearHighlights()
+end)
+
+
+-- 地上某一大类里有哪些物品（给每类的下拉框用）
+function HUB.listGroundItemNamesByCat(cat, maxDistance)
+	local seen, out = {}, {}
+	for _, it in ipairs(HUB.getDroppedItems(maxDistance or 5000)) do
+		if HUB.itemCategory(it.name) == cat then
+			local zh = HUB.zhName(it.name)
+			if not seen[zh] then
+				seen[zh] = true
+				out[#out + 1] = zh
+			end
+		end
+	end
+	table.sort(out)
+	return out
+end
+
+-- 地上有哪些宝箱（给筛选下拉框用）
+function HUB.listGroundChestNames(maxDistance)
+	local seen, out = {}, {}
+	for _, c in ipairs(HUB.getChests(maxDistance or 4000)) do
+		local zh = HUB.zhName(c.name)
+		if not seen[zh] then
+			seen[zh] = true
+			out[#out + 1] = zh
+		end
+	end
+	table.sort(out)
+	return out
+end
+
+end
+
+-- ===== 40_teleport.luau =====
+do
+--[[
+	钻探至地球核心 · 传送模块
+]]
+
+local Workspace        = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+local Players          = game:GetService("Players")
+
+local S = HUB.State
+S.ClickTP = false
+S.SavedPositions = {}
+
+local function finiteVec(v)
+	if not v then
+		return false
+	end
+	local x, y, z = v.X, v.Y, v.Z
+	if x ~= x or y ~= y or z ~= z then
+		return false
+	end
+	if math.abs(x) > 1e6 or math.abs(y) > 1e6 or math.abs(z) > 1e6 then
+		return false
+	end
+	return true
+end
+
+function HUB.teleportTo(cf)
+	local root = HUB.rootPart()
+	if not root or not cf then
+		return false
+	end
+	if not finiteVec(cf.Position) then
+		return false
+	end
+	local hum = HUB.humanoid()
+	if hum then
+		pcall(function()
+			root.CFrame = cf
+		end)
+		pcall(function()
+			root.Velocity = Vector3.zero
+		end)
+		return true
+	end
+	return false
+end
+
+function HUB.teleportToPosition(pos)
+	local root = HUB.rootPart()
+	if not root or not finiteVec(pos) then
+		return false
+	end
+	return HUB.teleportTo(CFrame.new(pos + Vector3.new(0, 3, 0)))
+end
+
+function HUB.teleportToPart(part)
+	if not part or not finiteVec(part.Position) then
+		return false
+	end
+	local root = HUB.rootPart()
+	if not root then
+		return false
+	end
+	local offset = (root.Position - part.Position).Unit * 4
+	if offset.Magnitude < 0.1 then
+		offset = Vector3.new(0, 0, 4)
+	end
+	return HUB.teleportTo(CFrame.new(part.Position + offset + Vector3.new(0, 2, 0)))
+end
+
+function HUB.teleportToPlayer(name)
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr.Name:lower() == tostring(name):lower() and plr.Character then
+			local root = plr.Character:FindFirstChild("HumanoidRootPart")
+			if root then
+				return HUB.teleportTo(root.CFrame * CFrame.new(0, 0, 3))
+			end
+		end
+	end
+	return false
+end
+
+-- 相机射线取点
+function HUB.cameraRaycast(maxDistance)
+	local cam = Workspace.CurrentCamera
+	if not cam then
+		return nil
+	end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local char = HUB.Player.Character
+	params.FilterDescendantsInstances = char and { char } or {}
+	local result = Workspace:Raycast(cam.CFrame.Position, cam.CFrame.LookVector * (maxDistance or 2000), params)
+	return result and result.Position or nil
+end
+
+-- 点击传送
+HUB.connect(UserInputService.InputBegan, function(input, processed)
+	if not S.ClickTP or processed then
+		return
+	end
+	if input.UserInputType == Enum.UserInputType.Touch
+		or input.UserInputType == Enum.UserInputType.MouseButton1 then
+		local pos = HUB.cameraRaycast(3000)
+		if pos then
+			HUB.teleportToPosition(pos)
+			HUB.Notify("已传送到准星位置", "ok", 1.5)
+		end
+	end
+end)
+
+-- 保存/读取坐标
+function HUB.savePosition(slot)
+	local root = HUB.rootPart()
+	if not root then
+		return false
+	end
+	S.SavedPositions[slot] = root.CFrame
+	return true
+end
+
+function HUB.loadPosition(slot)
+	local cf = S.SavedPositions[slot]
+	if not cf then
+		return false
+	end
+	return HUB.teleportTo(cf)
+end
+
+end
+
+-- ===== 45_misc.luau =====
+do
+--[[
+	钻探至地球核心 · 视觉 / 杂项
+]]
+
+local Lighting         = game:GetService("Lighting")
+local Workspace        = game:GetService("Workspace")
+local VirtualUser      = game:GetService("VirtualUser")
+local UserInputService = game:GetService("UserInputService")
+local RunService       = game:GetService("RunService")
+local Players          = game:GetService("Players")
+
+local S = HUB.State
+local saved = {}
+
+S.Fullbright = false
+S.Ambient = 70
+S.AntiAfk = false
+S.MuteAll = false
+
+function HUB.setFullbright(enabled)
+	S.Fullbright = enabled
+	if enabled then
+		if not saved.Brightness then
+			saved.Brightness = Lighting.Brightness
+			saved.ClockTime = Lighting.ClockTime
+			saved.Ambient = Lighting.Ambient
+			saved.OutdoorAmbient = Lighting.OutdoorAmbient
+			saved.FogEnd = Lighting.FogEnd
+			saved.FogStart = Lighting.FogStart
+			saved.GlobalShadows = Lighting.GlobalShadows
+		end
+		Lighting.Brightness = 3
+		Lighting.ClockTime = 14
+		Lighting.GlobalShadows = false
+		Lighting.Ambient = Color3.fromRGB(178, 178, 178)
+		Lighting.OutdoorAmbient = Color3.fromRGB(178, 178, 178)
+		Lighting.FogEnd = 100000
+		Lighting.FogStart = 0
+	else
+		if saved.Brightness then
+			Lighting.Brightness = saved.Brightness
+			Lighting.ClockTime = saved.ClockTime
+			Lighting.Ambient = saved.Ambient
+			Lighting.OutdoorAmbient = saved.OutdoorAmbient
+			Lighting.FogEnd = saved.FogEnd
+			Lighting.FogStart = saved.FogStart
+			Lighting.GlobalShadows = saved.GlobalShadows
+		end
+	end
+end
+
+-- 亮度 / 曝光直接由 Ambient 数值控制（0-255）
+function HUB.setAmbient(value)
+	S.Ambient = value
+	local c = Color3.fromRGB(value, value, value)
+	Lighting.Ambient = c
+	Lighting.OutdoorAmbient = c
+end
+
+function HUB.setFov(value)
+	local cam = Workspace.CurrentCamera
+	if cam then
+		cam.FieldOfView = value
+	end
+end
+
+-- 关闭所有音效（本机静音，不影响别人）
+function HUB.setMuteAll(enabled)
+	S.MuteAll = enabled
+	for _, sound in ipairs(game:GetDescendants()) do
+		if sound:IsA("Sound") then
+			pcall(function()
+				sound.Volume = enabled and 0 or 0.5
+			end)
+		end
+	end
+end
+
+-- 反挂机：定期模拟操作，避免被踢出
+HUB.connect(RunService.Heartbeat, function()
+	if not S.AntiAfk then
+		return
+	end
+	local now = os.clock()
+	if not S._lastAfk or now - S._lastAfk > 25 then
+		S._lastAfk = now
+		pcall(function()
+			VirtualUser:CaptureController()
+			VirtualUser:ClickButton2(Vector2.new())
+		end)
+	end
+end)
+
+-- 去除氛围特效（雾、粒子、后期）
+function HUB.setCleanVisuals(enabled)
+	for _, effect in ipairs(Lighting:GetChildren()) do
+		if effect:IsA("Atmosphere") or effect:IsA("BlurEffect")
+			or effect:IsA("ColorCorrectionEffect") or effect:IsA("SunRaysEffect") then
+			pcall(function()
+				effect.Enabled = not enabled
+			end)
+		end
+	end
+end
+
+-- 隐藏其他玩家角色（减少卡顿）
+function HUB.setHideOthers(enabled)
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= Players.LocalPlayer and plr.Character then
+			for _, part in ipairs(plr.Character:GetDescendants()) do
+				if part:IsA("BasePart") then
+					pcall(function()
+						part.LocalTransparencyModifier = enabled and 1 or 0
+					end)
+				end
+			end
+		end
+	end
+end
+
+-- 低画质
+function HUB.setLowGraphics(enabled)
+	if enabled then
+		pcall(function()
+			settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+		end)
+	else
+		pcall(function()
+			settings().Rendering.QualityLevel = Enum.QualityLevel.Level05
+		end)
+	end
+end
+
+-- 解锁帧率（支持 setfpscap 的执行器）
+function HUB.setFpsCap(cap)
+	if type(setfpscap) == "function" then
+		pcall(setfpscap, cap)
+		return true
+	end
+	return false
+end
+
+end
+
+-- ===== 50_combat.luau =====
+do
+--[[
+	钻探至地球核心 · 战斗（杀戮光环）
+	默认「站着挥剑」：不传送、不转向，只负责按攻击键
+	游戏自带 StartThirdPersonEnemyFacing，会自动面向最近的敌人
+]]
+
+local S = HUB.State
+local LP = HUB.Player
+
+S.KillAura = {
+	Enabled = false,
+	Range = 18,      -- 近战判定大概 18 格
+	Delay = 0.15,
+	Teleport = false,
+	OnlyBoss = false,
+}
+
+local weaponRank = {
+	Sword_Phoenix = 100,
+	Sword_Void = 90,
+	Sword_Diamond = 85,
+	Sword_Gold = 80,
+	Sword_Steel = 70,
+	Sword_Rusty = 60,
+	Sword_Wooden = 50,
+	Champions_Hammer = 95,
+	Pickaxe_Phoenix = 40,
+	Pickaxe_Diamond = 35,
+	Pickaxe_Gold = 30,
+	Pickaxe_Steel = 25,
+	Pickaxe_Rusty = 20,
+	Pickaxe_Wooden = 10,
+}
+
+local function rankOf(tool)
+	if not tool then
+		return -1
+	end
+	return weaponRank[tool.Name] or 0
+end
+
+-- 背包里最好的武器
+function HUB.bestWeapon()
+	local bp = LP:FindFirstChildOfClass("Backpack")
+	if not bp then
+		return nil
+	end
+	local best, bestRank = nil, -1
+	for _, item in ipairs(bp:GetChildren()) do
+		if item:IsA("Tool") then
+			local r = rankOf(item)
+			if string.find(item.Name, "Sword") then
+				r = r + 5
+			end
+			if r > bestRank then
+				best, bestRank = item, r
+			end
+		end
+	end
+	return best
+end
+
+-- 手上没武器就从背包拿一把（有武器就不动，避免抖）
+function HUB.equipWeapon()
+	local char = LP.Character
+	if not char then
+		return nil
+	end
+	local equipped = char:FindFirstChildOfClass("Tool")
+	if equipped and rankOf(equipped) > 0 then
+		return equipped
+	end
+	local tool = HUB.bestWeapon()
+	if tool then
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		pcall(function()
+			hum:EquipTool(tool)
+		end)
+		task.wait(0.1)
+		return tool
+	end
+	return nil
+end
+
+-- 只挥，不动
+local function auraLoop()
+	local lastTeleport = 0
+	while true do
+		local ok = pcall(function()
+			if not S.KillAura.Enabled or not HUB.isAlive() then
+				task.wait(0.25)
+				return
+			end
+
+			local target
+			if S.KillAura.OnlyBoss then
+				for _, b in ipairs(HUB.getBosses(2000)) do
+					if b.dist <= S.KillAura.Range then
+						target = b
+						break
+					end
+				end
+			else
+				for _, e in ipairs(HUB.getEnemies(S.KillAura.Range)) do
+					if e.hum.MaxHealth < 1000000 then
+						target = e
+						break
+					end
+				end
+			end
+
+			-- 范围内没怪就不挥，省得空挥乱抖
+			if not target then
+				task.wait(0.2)
+				return
+			end
+
+			local tool = HUB.equipWeapon()
+			if not tool then
+				task.wait(0.4)
+				return
+			end
+
+			-- 默认完全不碰位置和朝向；只有手动开了瞬移才挪一次
+			if S.KillAura.Teleport then
+				local now = os.clock()
+				local root = HUB.rootPart()
+				if root and now - lastTeleport > 1.5 then
+					local dist = (target.part.Position - root.Position).Magnitude
+					if dist > 10 then
+						lastTeleport = now
+						local pos = target.part.Position
+						pcall(function()
+							root.CFrame = CFrame.lookAt(pos + Vector3.new(0, 0, 6), pos)
+						end)
+						task.wait(0.2)
+					end
+				end
+			end
+
+			local swung = HUB.clientSwing("Sword", 0.1)
+			if not swung then
+				pcall(function()
+					tool:Activate()
+				end)
+			end
+			task.wait(S.KillAura.Delay)
+		end)
+		if not ok then
+			task.wait(0.3)
+		end
+	end
+end
+
+task.spawn(function()
+	pcall(auraLoop)
+end)
+
+end
+
+-- ===== 50_game.luau =====
+do
+--[[
+	钻探至地球核心 · 游戏专属功能
+	基于 Knit 服务发现：自动交互 / 远程调用面板 / 服务器操作
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace         = game:GetService("Workspace")
+local Players           = game:GetService("Players")
+
+local S = HUB.State
+S.AutoInteract = {
+	Enabled = false,
+	Distance = 25,
+	Delay = 0.6,
+}
+
+---------------------------------------------------------------------
+-- 发现 Knit 服务目录
+---------------------------------------------------------------------
+local cachedServices = nil
+function HUB.getServices()
+	if cachedServices and cachedServices.Parent then
+		return cachedServices
+	end
+	cachedServices = nil
+	local ok, result = pcall(function()
+		for _, inst in ipairs(ReplicatedStorage:GetDescendants()) do
+			if inst.Name == "Services" and inst.ClassName == "Folder" then
+				local parent = inst.Parent
+				if parent and (parent.Name == "knit" or (parent.Parent and parent.Parent.Name == "knit")) then
+					return inst
+				end
+			end
+		end
+		return nil
+	end)
+	cachedServices = ok and result or nil
+	return cachedServices
+end
+
+-- 拿某个服务下的远程对象
+function HUB.getRemote(serviceName, remoteName)
+	local services = HUB.getServices()
+	if not services then
+		return nil
+	end
+	local svc = services:FindFirstChild(serviceName)
+	if not svc then
+		return nil
+	end
+	for _, container in ipairs(svc:GetChildren()) do
+		if container.Name == "RF" or container.Name == "RE" then
+			local remote = container:FindFirstChild(remoteName)
+			if remote then
+				return remote
+			end
+		end
+	end
+	return nil
+end
+
+-- 安全调用 RemoteFunction：返回 ok, result
+function HUB.invoke(serviceName, remoteName, ...)
+	local remote = HUB.getRemote(serviceName, remoteName)
+	if not remote or not remote:IsA("RemoteFunction") then
+		return false, "远程不存在: " .. tostring(serviceName) .. "." .. tostring(remoteName)
+	end
+	local args = table.pack(...)
+	local ok, result = pcall(function()
+		return remote:InvokeServer(table.unpack(args, 1, args.n))
+	end)
+	return ok, result
+end
+
+function HUB.fire(serviceName, remoteName, ...)
+	local remote = HUB.getRemote(serviceName, remoteName)
+	if not remote or not remote:IsA("RemoteEvent") then
+		return false, "事件不存在"
+	end
+	local args = table.pack(...)
+	local ok, err = pcall(function()
+		remote:FireServer(table.unpack(args, 1, args.n))
+	end)
+	return ok, err
+end
+
+-- 列出所有远程（用于面板）
+function HUB.listRemotes()
+	local services = HUB.getServices()
+	local list = {}
+	if not services then
+		return list
+	end
+	for _, svc in ipairs(services:GetChildren()) do
+		for _, container in ipairs(svc:GetChildren()) do
+			if container.Name == "RF" or container.Name == "RE" then
+				for _, remote in ipairs(container:GetChildren()) do
+					table.insert(list, svc.Name .. "." .. remote.Name)
+				end
+			end
+		end
+	end
+	table.sort(list)
+	return list
+end
+
+---------------------------------------------------------------------
+-- 自动交互（宝箱 / 门 / 机器 等 ProximityPrompt）
+---------------------------------------------------------------------
+local lastInteract = 0
+HUB.connect(game:GetService("RunService").Heartbeat, function()
+	if not S.AutoInteract.Enabled then
+		return
+	end
+	local now = os.clock()
+	if now - lastInteract < S.AutoInteract.Delay then
+		return
+	end
+	local root = HUB.rootPart()
+	if not root then
+		return
+	end
+	local ok = pcall(function()
+		for _, prompt in ipairs(Workspace:GetDescendants()) do
+			if prompt:IsA("ProximityPrompt") and prompt.Enabled then
+				local parent = prompt.Parent
+				if parent and parent:IsA("BasePart") then
+					local dist = (parent.Position - root.Position).Magnitude
+					if dist <= math.min(S.AutoInteract.Distance, prompt.MaxActivationDistance + 2) then
+						if type(fireproximityprompt) == "function" then
+							fireproximityprompt(prompt)
+						else
+							prompt:InputHoldBegin()
+							task.wait(0.05)
+							prompt:InputHoldEnd()
+						end
+						lastInteract = now
+						return
+					end
+				end
+			end
+		end
+	end)
+	if not ok then
+		-- 出错时不刷屏
+		lastInteract = now
+	end
+end)
+
+---------------------------------------------------------------------
+-- 界面
+---------------------------------------------------------------------
+function HUB.BuildGameTab(tab)
+	local secAuto = tab:section("自动交互")
+	secAuto:paragraph("会自动按下附近的交互提示（宝箱、门、机器等），到范围内即触发。", 34)
+	secAuto:toggle({
+		Text = "启用自动交互",
+		Default = false,
+		Callback = function(v)
+			S.AutoInteract.Enabled = v
+			if v then
+				HUB.Notify("自动交互已开启", "ok")
+			end
+		end,
+	})
+	secAuto:slider({
+		Text = "触发距离",
+		Min = 5,
+		Max = 80,
+		Default = 25,
+		Flag = "AutoInteractDistance",
+		Callback = function(v)
+			S.AutoInteract.Distance = v
+		end,
+	})
+	secAuto:slider({
+		Text = "触发间隔 (0.1s)",
+		Min = 1,
+		Max = 20,
+		Default = 6,
+		Flag = "AutoInteractDelay",
+		Callback = function(v)
+			S.AutoInteract.Delay = v / 10
+		end,
+	})
+
+	local secServer = tab:section("服务器")
+	secServer:button({
+		Text = "强制重新同步角色 (Respawn)",
+		Callback = function()
+			local char = HUB.Player.Character
+			if char then
+				char:BreakJoints()
+			end
+		end,
+	})
+	secServer:button({
+		Text = "重新加入本局 (RejoinSession)",
+		Callback = function()
+			local ok, res = HUB.invoke("TeleportManagerService", "RejoinSession")
+			HUB.Notify(ok and ("已请求重进: " .. tostring(res)) or ("失败: " .. tostring(res)), ok and "ok" or "err", 4)
+		end,
+	})
+	secServer:button({
+		Text = "返回大厅 (TeleportToLobby)",
+		Callback = function()
+			local ok, res = HUB.invoke("TeleportManagerService", "TeleportToLobby")
+			HUB.Notify(ok and ("已请求返回大厅: " .. tostring(res)) or ("失败: " .. tostring(res)), ok and "ok" or "err", 4)
+		end,
+	})
+
+	-- 远程调用面板
+	local secRemote = tab:section("远程调用 · 手动")
+	secRemote:paragraph("调用 Knit 服务的远程函数/事件。参数按 Lua 语法写，例如：1, \"abc\", Vector3.new(0,0,0)", 34)
+	local remoteList = HUB.listRemotes()
+	local dd = secRemote:dropdown({
+		Text = "远程对象",
+		Values = remoteList,
+		Default = remoteList[1],
+	})
+	local argBox = secRemote:input({
+		Text = "参数",
+		Placeholder = "留空表示无参数",
+	})
+	local resultLabel = secRemote:paragraph("结果：—", 34)
+
+	secRemote:button({
+		Text = "刷新远程列表",
+		Callback = function()
+			local list = HUB.listRemotes()
+			dd:refresh(list)
+			HUB.Notify("已刷新，共 " .. #list .. " 个远程", "ok")
+		end,
+	})
+	secRemote:button({
+		Text = "调用 (RemoteFunction)",
+		Callback = function()
+			local target = dd:get()
+			if not target then
+				return
+			end
+			local service, remote = string.match(target, "^(.-)%.(.+)$")
+			local raw = argBox:get()
+			local args = {}
+			if raw and raw ~= "" then
+				local loader = loadstring or load
+				local okParse, chunk = pcall(loader, "return {" .. raw .. "}")
+				if okParse and chunk then
+					local okRun, parsed = pcall(chunk)
+					if okRun and type(parsed) == "table" then
+						args = parsed
+					end
+				end
+			end
+			local remoteObj = HUB.getRemote(service, remote)
+			if not remoteObj or not remoteObj:IsA("RemoteFunction") then
+				HUB.Notify("这不是 RemoteFunction", "warn")
+				return
+			end
+			local ok, res = pcall(function()
+				return remoteObj:InvokeServer(table.unpack(args))
+			end)
+			resultLabel.Text = "结果：" .. tostring(res)
+			HUB.Notify(ok and "调用成功" or ("调用失败: " .. tostring(res)), ok and "ok" or "err", 5)
+		end,
+	})
+	secRemote:button({
+		Text = "触发 (RemoteEvent)",
+		Callback = function()
+			local target = dd:get()
+			if not target then
+				return
+			end
+			local service, remote = string.match(target, "^(.-)%.(.+)$")
+			local raw = argBox:get()
+			local args = {}
+			if raw and raw ~= "" then
+				local loader = loadstring or load
+				local okParse, chunk = pcall(loader, "return {" .. raw .. "}")
+				if okParse and chunk then
+					local okRun, parsed = pcall(chunk)
+					if okRun and type(parsed) == "table" then
+						args = parsed
+					end
+				end
+			end
+			local remoteObj = HUB.getRemote(service, remote)
+			if not remoteObj or not remoteObj:IsA("RemoteEvent") then
+				HUB.Notify("这不是 RemoteEvent", "warn")
+				return
+			end
+			local ok, res = pcall(function()
+				remoteObj:FireServer(table.unpack(args))
+			end)
+			resultLabel.Text = "已触发：" .. tostring(ok)
+			HUB.Notify(ok and "已触发" or ("失败: " .. tostring(res)), ok and "ok" or "err", 4)
+		end,
+	})
+end
+
+end
+
+-- ===== 55_mining.luau =====
+do
+--[[
+	钻探至地球核心 · 自动挖矿 + 全图拾取
+	挖矿：传送到矿点 → 换镐 → 面向 → Activate 若干次 → 下一块
+	拾取：传送到掉落物 → CarryInventoryService.Pickup
+]]
+
+local S = HUB.State
+local LP = HUB.Player
+
+S.AutoMine = {
+	Enabled = false,
+	OreType = "全部",
+	Delay = 0.15,        -- 固定最小敲击间隔
+	NoclipOwned = false, -- 穿墙是本功能开的还是用户自己开的
+	MaxDistance = 3000,  -- 固定最大找矿半径
+	WaitTimeout = 25,    -- 等一块矿挖完的最长时间
+}
+
+S.AutoPickup = {
+	Enabled = false,
+	MaxDistance = 4000,
+	Delay = 0.35,
+	Cats = {          -- 捡哪些分类
+		["武器"] = true,
+		["镐子"] = true,
+		["医疗包"] = true,
+		["药水"] = true,
+		["子弹"] = true,
+		["装备"] = true,
+		["卖钱"] = true,
+		["尸体"] = true,
+		["其他"] = true,
+	},
+	Filters = {},     -- [分类] = { [中文名] = true }；空 = 该类全捡
+}
+
+local blacklist = {}   -- [part] = 解禁时间
+local stats = { mined = 0, picked = 0 }
+
+function HUB.getMiningStats()
+	return stats.mined, stats.picked
+end
+
+-- 换镐：一定要确认真的拿在手上，拿不上就重试
+local function pickaxe()
+	local char = LP.Character
+	if not char then
+		return nil
+	end
+	local function equippedTool()
+		return char:FindFirstChildOfClass("Tool")
+	end
+	local function isPickaxe(t)
+		return t and string.find(t.Name, "Pickaxe") ~= nil
+	end
+
+	if isPickaxe(equippedTool()) then
+		return equippedTool()
+	end
+
+	local bp = LP:FindFirstChildOfClass("Backpack")
+	if not bp then
+		return nil
+	end
+	local best, bestRank = nil, -1
+	local ranks = {
+		Pickaxe_Phoenix = 90, Pickaxe_Void = 80, Pickaxe_Diamond = 70,
+		Pickaxe_Gold = 60, Pickaxe_Steel = 50, Pickaxe_Rusty = 40, Pickaxe_Wooden = 30,
+		Pickaxe_Prospector = 45,
+	}
+	for _, item in ipairs(bp:GetChildren()) do
+		if item:IsA("Tool") and string.find(item.Name, "Pickaxe") then
+			local r = ranks[item.Name] or 10
+			if r > bestRank then
+				best, bestRank = item, r
+			end
+		end
+	end
+	if not best then
+		return nil
+	end
+
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	for attempt = 1, 4 do
+		pcall(function()
+			if equippedTool() and not isPickaxe(equippedTool()) then
+				hum:UnequipTools()
+				task.wait(0.15)
+			end
+			hum:EquipTool(best)
+		end)
+		for _ = 1, 10 do
+			task.wait(0.08)
+			if isPickaxe(equippedTool()) then
+				return equippedTool()
+			end
+		end
+	end
+	return isPickaxe(equippedTool()) and equippedTool() or nil
+end
+
+-- 拾取进背包；全程不替换手上的工具（收完再装回去）
+-- 按当前筛选，找第一个该捡的物品，同时统计卖钱总价值
+function HUB.findPickTarget()
+	local items = HUB.getDroppedItems(S.AutoPickup.MaxDistance)
+	local first, total = nil, 0
+	for _, cand in ipairs(items) do
+		local cat = HUB.itemCategory(cand.name)
+		local zh = HUB.zhName(cand.name)
+		local cf = S.AutoPickup.Filters[cat]
+		local catOk = S.AutoPickup.Cats[cat] ~= false
+		local nameOk = (cf == nil or next(cf) == nil) or cf[zh] == true
+		if catOk and nameOk then
+			if cat == "卖钱" then
+				total = total + HUB.itemValue(cand.model)
+			end
+			if not first then
+				first = cand
+			end
+		end
+	end
+	S.Values = S.Values or {}
+	S.Values.PickTotal = total
+	return first
+end
+
+function HUB.pickupItem(item)
+	local char = LP.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local held = char and char:FindFirstChildOfClass("Tool")
+	local ok, res = HUB.invoke("CarryInventoryService", "Pickup", item)
+	if hum and held and held.Parent and char:FindFirstChildOfClass("Tool") ~= held then
+		pcall(function()
+			hum:EquipTool(held)
+		end)
+	end
+	return ok and res == true or (ok and res)
+end
+
+---------------------------------------------------------------------
+-- 主循环：拾取优先，其次挖矿
+---------------------------------------------------------------------
+task.spawn(function()
+	while true do
+		local ok, err = pcall(function()
+			-- 挖矿关掉后，把本功能开的穿墙也收回去
+			if not S.AutoMine.Enabled and S.AutoMine.NoclipOwned then
+				S.AutoMine.NoclipOwned = false
+				if S.Noclip then
+					HUB.setNoclip(false)
+				end
+			end
+
+			if not HUB.isAlive() then
+				task.wait(0.4)
+				return
+			end
+
+			-- 1) 全图拾取
+			if S.AutoPickup.Enabled then
+				local it = HUB.findPickTarget()
+				if it then
+					local myRoot = HUB.rootPart()
+					pcall(function()
+						myRoot.CFrame = CFrame.new(it.part.Position + Vector3.new(0, 1.2, 0))
+					end)
+					task.wait(0.08)
+					if HUB.pickupItem(it.model) then
+						stats.picked = stats.picked + 1
+					end
+					task.wait(S.AutoPickup.Delay)
+					return
+				end
+			end
+
+			-- 2) 自动挖矿
+			if S.AutoMine.Enabled then
+				local now = os.clock()
+				local ores = HUB.getOres(S.AutoMine.MaxDistance, S.AutoMine.OreType)
+				local target
+				for _, ore in ipairs(ores) do
+					local until_ = blacklist[ore.part]
+					if not until_ or now > until_ then
+						target = ore
+						break
+					end
+				end
+				if target then
+					-- 先确保镐在手上（有时装备会失败）
+					local ensured = pickaxe()
+					if not ensured then
+						task.wait(0.5)
+						return
+					end
+					-- 挖矿期间开穿墙，钻到矿内部
+					if not S.Noclip then
+						HUB.setNoclip(true)
+						S.AutoMine.NoclipOwned = true
+					end
+					local pick = pickaxe()
+					if pick then
+						local myRoot = HUB.rootPart()
+						local orePos = target.part.Position
+						pcall(function()
+							myRoot.CFrame = CFrame.new(orePos + Vector3.new(0, 0.5, 0))
+						end)
+						-- 一块矿：一直敲到它消失（或超时）才换下一块
+						local deadline = os.clock() + S.AutoMine.WaitTimeout
+						while target.part.Parent and os.clock() < deadline do
+							pcall(function()
+								myRoot.CFrame = CFrame.new(orePos + Vector3.new(0, 0.5, 0))
+							end)
+							-- 优先用客户端工具对象真挥砍；没有就退回 Activate
+							if not string.find((LP.Character:FindFirstChildOfClass("Tool") and LP.Character:FindFirstChildOfClass("Tool").Name) or "", "Pickaxe") then
+								pickaxe()
+							end
+							local swung = HUB.clientSwing("Pickaxe", 0.1)
+							if not swung then
+								pcall(function()
+									pick:Activate()
+								end)
+							end
+							task.wait(S.AutoMine.Delay)
+						end
+						blacklist[target.part] = os.clock() + 20
+						stats.mined = stats.mined + 1
+					else
+						task.wait(0.5)
+					end
+					return
+				end
+			end
+
+			task.wait(0.35)
+		end)
+		if not ok then
+			task.wait(0.5)
+		end
+	end
+end)
+
+end
+
+-- ===== 60_nav.luau =====
+do
+--[[
+	钻探至地球核心 · 自动寻路（去地牢门 / 进地牢 / 去 BOSS）
+]]
+
+local PathfindingService = game:GetService("PathfindingService")
+local RunService        = game:GetService("RunService")
+
+local S = HUB.State
+
+S.Nav = {
+	Active = false,
+	Status = "空闲",
+	Target = nil,
+}
+
+local navToken = 0
+
+function HUB.stopNav()
+	navToken = navToken + 1
+	S.Nav.Active = false
+	S.Nav.Status = "已停止"
+	local hum = HUB.humanoid()
+	if hum then
+		pcall(function()
+			hum:MoveTo(hum.Parent.HumanoidRootPart.Position)
+		end)
+	end
+end
+
+local function walkPath(targetPos, label)
+	local myToken = navToken + 1
+	navToken = myToken
+	S.Nav.Active = true
+	S.Nav.Status = "规划路径：" .. label
+	S.Nav.Target = targetPos
+
+	local path = PathfindingService:CreatePath({
+		AgentRadius = 2,
+		AgentHeight = 5,
+		AgentCanJump = true,
+		AgentCanClimb = true,
+		AgentMaxSlope = 60,
+	})
+
+	local ok = pcall(function()
+		path:ComputeAsync(HUB.rootPart().Position, targetPos)
+	end)
+	if not ok or path.Status ~= Enum.PathStatus.Success then
+		S.Nav.Status = "寻路失败，尝试直走"
+		local hum = HUB.humanoid()
+		if hum then
+			pcall(function()
+				hum:MoveTo(targetPos)
+			end)
+		end
+	else
+		local waypoints = path:GetWaypoints()
+		for i, wp in ipairs(waypoints) do
+			if navToken ~= myToken then
+				S.Nav.Active = false
+				S.Nav.Status = "已停止"
+				return false
+			end
+			local hum = HUB.humanoid()
+			if not hum or hum.Health <= 0 then
+				S.Nav.Active = false
+				S.Nav.Status = "角色死亡"
+				return false
+			end
+			S.Nav.Status = string.format("前往 %s（%d/%d）", label, i, #waypoints)
+			hum:MoveTo(wp.Position)
+			if wp.Action == Enum.PathWaypointAction.Jump then
+				pcall(function()
+					hum.Jump = true
+				end)
+			end
+			-- 等待到达或超时
+			local deadline = os.clock() + 4
+			while os.clock() < deadline do
+				if navToken ~= myToken then
+					return false
+				end
+				local root = HUB.rootPart()
+				if root and (root.Position - wp.Position).Magnitude < 4 then
+					break
+				end
+				task.wait(0.1)
+			end
+		end
+	end
+
+	local root = HUB.rootPart()
+	if root and (root.Position - targetPos).Magnitude < 12 then
+		S.Nav.Active = false
+		S.Nav.Status = "已到达：" .. label
+		return true
+	end
+	S.Nav.Active = false
+	S.Nav.Status = "接近：" .. label
+	return true
+end
+
+function HUB.navigateToPos(pos, label)
+	task.spawn(function()
+		pcall(walkPath, pos, label or "目标点")
+	end)
+end
+
+function HUB.navigateToNearestGate(tier)
+	local gates = HUB.getGates()
+	local target
+	for _, g in ipairs(gates) do
+		if not tier or g.tier == tier then
+			target = g
+			break
+		end
+	end
+	if not target then
+		HUB.Notify("没找到地牢门", "warn")
+		return
+	end
+	HUB.navigateToPos(target.part.Position, "Tier" .. tostring(target.tier) .. " 地牢门")
+	-- 到门口后自动按提示
+	task.spawn(function()
+		local deadline = os.clock() + 120
+		while os.clock() < deadline and S.Nav.Active do
+			task.wait(0.5)
+		end
+		local root = HUB.rootPart()
+		if root and (root.Position - target.part.Position).Magnitude < 30 then
+			local ok = HUB.firePrompt(target.part)
+			HUB.Notify(ok and "已触发地牢入口" or "没找到入口提示，走近一点再试", ok and "ok" or "warn", 4)
+		end
+	end)
+end
+
+function HUB.enterNearestGate()
+	local gates = HUB.getGates()
+	local target = gates[1]
+	if not target then
+		HUB.Notify("附近没有地牢门", "warn")
+		return
+	end
+	local root = HUB.rootPart()
+	if root and (root.Position - target.part.Position).Magnitude > 30 then
+		HUB.navigateToNearestGate()
+		return
+	end
+	local ok = HUB.firePrompt(target.part)
+	HUB.Notify(ok and "已触发地牢入口" or "没有可用的入口提示", ok and "ok" or "warn", 4)
+end
+
+-- 去 BOSS：有 BOSS 直接去，没有就去最近地牢
+function HUB.navigateToBoss()
+	local bosses = HUB.getBosses(2000)
+	if #bosses > 0 then
+		local b = bosses[1]
+		HUB.navigateToPos(b.part.Position, "BOSS " .. b.model.Name)
+		HUB.Notify("正在前往 BOSS：" .. b.model.Name, "ok", 3)
+		return
+	end
+	HUB.Notify("当前区域没有 BOSS，改为前往最近的地牢门", "warn", 4)
+	HUB.navigateToNearestGate()
+end
+
+end
+
+-- ===== 65_vehicle.luau =====
+do
+--[[
+	钻探至地球核心 · 钻机车 / 熔炉（烧尸体）
+	车 = 带 VehicleSeat 的 Drill 模型；熔炉 = 车上的 Furnace 部件
+]]
+
+local Workspace = game:GetService("Workspace")
+
+local S = HUB.State
+local LP = HUB.Player
+
+S.Vehicle = {
+	BurnRunning = false,
+}
+
+-- 烧尸体可调参数
+S.Burn = {
+	Enabled = false,     -- 开关：开了就自动循环烧
+	Max = 10,            -- 一次最多拿几个（背几具尸体）
+	Radius = 4000,       -- 找尸体的半径
+	Delay = 0.3,         -- 每烧一个的间隔
+	UseVehicleFurnace = true, -- 先飞去钻机车上的熔炉
+}
+
+-- 兼容旧引用
+S.Burn.Stats = 0
+
+-- 所有钻机车（含各层堡垒里的）
+function HUB.getDrills()
+	local out = {}
+	local myRoot = HUB.rootPart()
+	for _, inst in ipairs(Workspace:GetDescendants()) do
+		if inst:IsA("Model") and inst.Name == "Drill" then
+			local seat = inst:FindFirstChildWhichIsA("VehicleSeat", true)
+			local furnace = inst:FindFirstChild("Furnace", true)
+			if seat then
+				out[#out + 1] = {
+					model = inst,
+					seat = seat,
+					furnace = furnace,
+					dist = myRoot and (seat.Position - myRoot.Position).Magnitude or 0,
+				}
+			end
+		end
+	end
+	-- 堡垒里的 Drill_Portal 也算
+	for _, inst in ipairs(Workspace:GetDescendants()) do
+		if inst:IsA("Model") and inst.Name == "Drill_Portal" then
+			local seat = inst:FindFirstChildWhichIsA("VehicleSeat", true)
+			if seat then
+				out[#out + 1] = {
+					model = inst,
+					seat = seat,
+					furnace = inst:FindFirstChild("Furnace", true),
+					dist = myRoot and (seat.Position - myRoot.Position).Magnitude or 0,
+				}
+			end
+		end
+	end
+	table.sort(out, function(a, b)
+		return a.dist < b.dist
+	end)
+	return out
+end
+
+function HUB.teleportToVehicle()
+	local drills = HUB.getDrills()
+	local d = drills[1]
+	if not d then
+		HUB.Notify("没找到钻机车", "warn")
+		return false
+	end
+	local myRoot = HUB.rootPart()
+	if not myRoot then
+		return false
+	end
+	pcall(function()
+		myRoot.CFrame = d.seat.CFrame * CFrame.new(0, 3, 0)
+		myRoot.Velocity = Vector3.zero
+	end)
+	HUB.Notify("已传送到钻机车（" .. math.floor(d.dist) .. " 米外）", "ok", 2)
+	return true
+end
+
+-- 最近的熔炉部件
+function HUB.getFurnace()
+	local myRoot = HUB.rootPart()
+	local best, bestDist = nil, math.huge
+	for _, inst in ipairs(Workspace:GetDescendants()) do
+		if inst:IsA("BasePart") and inst.Name == "Furnace" then
+			if myRoot then
+				local d = (inst.Position - myRoot.Position).Magnitude
+				if d < bestDist then
+					best, bestDist = inst, d
+				end
+			elseif not best then
+				best = inst
+			end
+		end
+	end
+	if best then
+		return best, bestDist
+	end
+	-- 退一步：车上的熔炉
+	local drills = HUB.getDrills()
+	for _, d in ipairs(drills) do
+		if d.furnace then
+			return d.furnace, d.dist
+		end
+	end
+	return nil, 0
+end
+
+function HUB.teleportToFurnace()
+	local furnace = HUB.getFurnace()
+	if not furnace then
+		HUB.Notify("没找到熔炉", "warn")
+		return false
+	end
+	local myRoot = HUB.rootPart()
+	if myRoot then
+		pcall(function()
+			myRoot.CFrame = CFrame.new(furnace.Position + Vector3.new(0, 4, 4))
+		end)
+		HUB.Notify("已传送到熔炉", "ok", 2)
+		return true
+	end
+	return false
+end
+
+---------------------------------------------------------------------
+-- 尸体识别
+---------------------------------------------------------------------
+-- 死亡的单位模型（可背）
+function HUB.getCorpses(maxDist)
+	local out = {}
+	local myRoot = HUB.rootPart()
+	for _, inst in ipairs(Workspace:GetDescendants()) do
+		if inst:IsA("Humanoid") and inst.Parent and inst.Health <= 0 then
+			local model = inst.Parent
+			if model ~= LP.Character then
+				local part = model:FindFirstChildWhichIsA("BasePart", true)
+				if part then
+					local d = myRoot and (part.Position - myRoot.Position).Magnitude or 0
+					if not maxDist or d <= maxDist then
+						out[#out + 1] = { model = model, part = part, dist = d, name = model.Name }
+					end
+				end
+			end
+		end
+	end
+	table.sort(out, function(a, b)
+		return a.dist < b.dist
+	end)
+	return out
+end
+
+-- 背包里的尸体（Items 文件夹里名字是怪名的）
+function HUB.getLooseCorpses(maxDist)
+	local out = {}
+	for _, corpse in ipairs(HUB.getCorpses(maxDist)) do
+		out[#out + 1] = corpse
+	end
+	return out
+end
+
+---------------------------------------------------------------------
+-- 一键烧熔炉：背起尸体 → 飞到熔炉 → 塞进去
+---------------------------------------------------------------------
+function HUB.burnCorpses()
+	if S.Vehicle.BurnRunning then
+		HUB.Notify("烧炉子已经在跑了", "warn")
+		return
+	end
+	S.Vehicle.BurnRunning = true
+	task.spawn(function()
+		local ok, err = pcall(function()
+			local cfg = S.Burn
+			local capacity = 35
+			pcall(function()
+				capacity = tonumber(LP:GetAttribute("CarryCapacity")) or 35
+			end)
+			local want = math.max(1, math.min(math.floor(cfg.Max), capacity))
+
+			-- 1) 先背尸体：一次最多拿 want 个
+			local carried, failed = 0, 0
+			local myRoot = HUB.rootPart()
+			for i = 1, want do
+				local corpses = HUB.getCorpses(cfg.Radius)
+				if #corpses == 0 then
+					break
+				end
+				local c = corpses[1]
+				myRoot = HUB.rootPart()
+				if myRoot then
+					pcall(function()
+						myRoot.CFrame = CFrame.new(c.part.Position + Vector3.new(0, 1.5, 0))
+					end)
+					task.wait(0.12)
+				end
+				if HUB.invoke("CarryInventoryService", "Pickup", c.model) then
+					carried = carried + 1
+				else
+					failed = failed + 1
+					if failed >= 3 then
+						break
+					end
+				end
+				task.wait(cfg.Delay)
+			end
+
+			if carried == 0 then
+				HUB.Notify("附近没有能背起来的尸体", "warn", 3)
+				return
+			end
+
+			-- 2) 飞去熔炉，把背上的全塞进去
+			if cfg.UseVehicleFurnace then
+				HUB.teleportToVehicle()
+			end
+			local furnace = HUB.getFurnace()
+			if not furnace then
+				HUB.Notify("没找到熔炉", "err")
+				return
+			end
+			myRoot = HUB.rootPart()
+			if myRoot then
+				pcall(function()
+					myRoot.CFrame = CFrame.new(furnace.Position + Vector3.new(0, 4, 4))
+				end)
+			end
+			task.wait(0.2)
+
+			for i = 1, carried do
+				HUB.invoke("InteractionService", "Interact", furnace)
+				HUB.invoke("CarryInventoryService", "DropInventory")
+				task.wait(cfg.Delay)
+			end
+
+			HUB.Notify("这趟背了 " .. carried .. " 具，已全部送进熔炉", "ok", 4)
+		end)
+		S.Vehicle.BurnRunning = false
+		if not ok then
+			HUB.Notify("烧炉出错：" .. tostring(err), "err", 5)
+		end
+	end)
+end
+
+end
+
+-- ===== 70_uikit.luau =====
+do
+--[[
+	钻探至地球核心 · 界面层
+	默认使用开源界面 Obsidian（deividcomsono/Obsidian，写法照官方 Example.lua）
+	加载不到时退回内置界面，保证脚本一定能出界面
+]]
+
+HUB.UIKit = {}
+local UIKit = HUB.UIKit
+UIKit.Backend = "native"
+UIKit.Library = nil
+
+local REPO = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+local OBSIDIAN_URLS = {
+	REPO .. "Library.lua",
+	"https://cdn.jsdelivr.net/gh/deividcomsono/Obsidian@main/Library.lua",
+	"https://ghproxy.net/https://raw.githubusercontent.com/deividcomsono/Obsidian/main/Library.lua",
+}
+
+local function httpGet(url)
+	if type(game.HttpGet) ~= "function" then
+		return nil
+	end
+	local ok, res = pcall(function()
+		return game:HttpGet(url, true)
+	end)
+	if not ok then
+		ok, res = pcall(function()
+			return game:HttpGet(url)
+		end)
+	end
+	if ok and type(res) == "string" and #res > 20000 then
+		return res
+	end
+	return nil
+end
+
+function UIKit:init()
+	for _, url in ipairs(OBSIDIAN_URLS) do
+		local src = httpGet(url)
+		if src then
+			local okFn, fn = pcall(loadstring or load, src)
+			if okFn and fn then
+				local okRun, lib = pcall(fn)
+				if okRun and lib and lib.CreateWindow then
+					UIKit.Library = lib
+					UIKit.Backend = "obsidian"
+					return true
+				end
+			end
+		end
+	end
+	UIKit.Backend = "native"
+	return false
+end
+
+---------------------------------------------------------------------
+-- Obsidian 分组适配
+---------------------------------------------------------------------
+local uid = 0
+local function key(prefix, opts)
+	uid = uid + 1
+	return prefix .. tostring(uid) .. "_" .. tostring(opts and opts.Text or "")
+end
+
+local function wrapGroup(group)
+	local api = {}
+
+	function api:toggle(opts)
+		local state = {}
+		local value = opts.Default == true
+		HUB.Flags[opts.Flag or opts.Text] = value
+		pcall(function()
+			state._obj = group:AddToggle(key("tg", opts), {
+				Text = opts.Text,
+				Default = value,
+				Callback = function(v)
+					value = v
+					HUB.Flags[opts.Flag or opts.Text] = v
+					if opts.Callback then
+						task.spawn(opts.Callback, v)
+					end
+				end,
+			})
+		end)
+		function state:set(v)
+			pcall(function()
+				state._obj:SetValue(v)
+			end)
+		end
+		function state:get()
+			return value
+		end
+		if opts.Callback then
+			task.spawn(opts.Callback, value)
+		end
+		return state
+	end
+
+	function api:slider(opts)
+		local state = {}
+		local value = opts.Default or opts.Min or 0
+		HUB.Flags[opts.Flag or opts.Text] = value
+		pcall(function()
+			state._obj = group:AddSlider(key("sl", opts), {
+				Text = opts.Text,
+				Default = value,
+				Min = opts.Min or 0,
+				Max = opts.Max or 100,
+				Rounding = 0,
+				Callback = function(v)
+					value = v
+					HUB.Flags[opts.Flag or opts.Text] = v
+					if opts.Callback then
+						task.spawn(opts.Callback, v)
+					end
+				end,
+			})
+		end)
+		function state:set(v)
+			pcall(function()
+				state._obj:SetValue(v)
+			end)
+		end
+		function state:get()
+			return value
+		end
+		if opts.Callback then
+			task.spawn(opts.Callback, value)
+		end
+		return state
+	end
+
+	function api:button(opts)
+		pcall(function()
+			group:AddButton({
+				Text = opts.Text,
+				Func = function()
+					if opts.Callback then
+						local ok, err = pcall(opts.Callback)
+						if not ok then
+							HUB.Notify(tostring(err), "err", 4)
+						end
+					end
+				end,
+			})
+		end)
+	end
+
+	function api:dropdown(opts)
+		local state = {}
+		local isMulti = opts.Multi == true
+		local current
+		if isMulti then
+			current = {}
+		else
+			current = opts.Default or (opts.Values and opts.Values[1])
+		end
+		pcall(function()
+			state._obj = group:AddDropdown(key("dd", opts), {
+				Text = opts.Text,
+				Values = opts.Values or {},
+				Default = current,
+				Multi = isMulti,
+				Searchable = opts.Searchable == true,
+				Callback = function(v)
+					current = v
+					HUB.Flags[opts.Flag or opts.Text] = v
+					if opts.Callback then
+						task.spawn(opts.Callback, v)
+					end
+				end,
+			})
+		end)
+		function state:get()
+			return current
+		end
+		function state:set(v)
+			current = v
+			pcall(function()
+				state._obj:SetValue(v)
+			end)
+		end
+		function state:refresh(values)
+			pcall(function()
+				state._obj:SetValues(values)
+			end)
+			pcall(function()
+				state._obj:SetValue(values[1])
+			end)
+			current = values[1]
+		end
+		-- 换选项但保留已选（多选筛选用）
+		function state:refreshValues(values)
+			pcall(function()
+				state._obj:SetValues(values)
+			end)
+		end
+		return state
+	end
+
+	function api:input(opts)
+		local state = {}
+		local text = ""
+		pcall(function()
+			state._obj = group:AddInput(key("in", opts), {
+				Text = opts.Text,
+				Default = "",
+				Numeric = false,
+				Finished = false,
+				ClearTextOnFocus = false,
+				Placeholder = opts.Placeholder or "",
+				Callback = function(v)
+					text = v or ""
+					if opts.Callback then
+						pcall(opts.Callback, text)
+					end
+				end,
+			})
+		end)
+		function state:get()
+			return text
+		end
+		function state:set(v)
+			text = v
+			pcall(function()
+				state._obj:SetValue(v)
+			end)
+		end
+		return state
+	end
+
+	function api:keybind(opts)
+		pcall(function()
+			local label = group:AddLabel(opts.Text or "快捷键")
+			label:AddKeyPicker(key("kp", opts), {
+				Default = opts.Default and opts.Default.Name or "F",
+				Mode = "Toggle",
+				Text = opts.Text or "快捷键",
+				Callback = function(v)
+					if opts.Callback then
+						task.spawn(opts.Callback, v)
+					end
+				end,
+			})
+		end)
+	end
+
+	function api:colorpicker(opts)
+		local state = {}
+		local value = opts.Default or Color3.fromRGB(255, 255, 255)
+		pcall(function()
+			local label = group:AddLabel(opts.Text or "颜色")
+			state._obj = label:AddColorPicker(key("cp", opts), {
+				Default = value,
+				Title = opts.Text or "颜色",
+				Callback = function(v)
+					value = v
+					if opts.Callback then
+						task.spawn(opts.Callback, v)
+					end
+				end,
+			})
+		end)
+		function state:set(v)
+			pcall(function()
+				state._obj:SetValueRGB(v)
+			end)
+		end
+		function state:get()
+			return value
+		end
+		return state
+	end
+
+	function api:paragraph(text, height)
+		local holder = { Text = text }
+		local label
+		pcall(function()
+			label = group:AddLabel({ Text = text, DoesWrap = true })
+		end)
+		setmetatable(holder, {
+			__newindex = function(t, k, v)
+				rawset(t, k, v)
+				if k == "Text" and label then
+					pcall(function()
+						label:SetText(v)
+					end)
+				end
+			end,
+		})
+		return holder
+	end
+
+	function api:divider()
+		pcall(function()
+			group:AddDivider()
+		end)
+	end
+
+	return api
+end
+
+local TAB_ICONS = {
+	["战斗"] = "swords",
+	["挖矿"] = "pickaxe",
+	["传送"] = "map-pin",
+	["透视"] = "eye",
+	["导航"] = "compass",
+	["玩家"] = "user",
+	["视觉"] = "sun",
+	["杂项"] = "wrench",
+}
+
+local function wrapTab(tab)
+	local api = {}
+	local side = "Left"
+	function api:section(title, order)
+		side = (side == "Left") and "Right" or "Left"
+		local ok, group = pcall(function()
+			return tab:AddGroupbox({
+				Side = side,
+				Name = title or "功能",
+			})
+		end)
+		if ok and group then
+			return wrapGroup(group)
+		end
+		return wrapGroup({})
+	end
+	return api
+end
+
+---------------------------------------------------------------------
+-- 建窗口
+---------------------------------------------------------------------
+function UIKit:createWindow(cfg)
+	if not self._inited then
+		self._inited = true
+		local ok = pcall(function()
+			self:init()
+		end)
+		if not ok then
+			self.Backend = "native"
+		end
+	end
+
+	if self.Backend == "obsidian" and self.Library then
+		local ok, win = pcall(function()
+			return self.Library:CreateWindow({
+				Title = cfg.Title,
+				Footer = "v" .. HUB.Version .. " · 地球",
+				Icon = 0,
+				NotifySide = "Right",
+				Center = false,
+				AutoShow = true,
+			})
+		end)
+		if ok and win then
+			local Library = self.Library
+			HUB.Notify = function(text)
+				pcall(function()
+					Library:Notify({
+						Title = "钻探至地球核心",
+						Description = tostring(text),
+						Time = 4,
+					})
+				end)
+			end
+			local wrapper = {}
+			function wrapper:tab(name, order)
+				local icon = TAB_ICONS[name] or "circle"
+				local okTab, tab = pcall(function()
+					return win:AddTab(name, icon)
+				end)
+				if okTab and tab then
+					return wrapTab(tab)
+				end
+				return wrapTab({})
+			end
+			function wrapper:setOpen() end
+			function wrapper:toggle() end
+			return wrapper
+		end
+		self.Backend = "native"
+	end
+
+	local nativeWin = HUB.UI:createWindow(cfg)
+	self.NativeWindow = nativeWin
+	local wrapper = {}
+	function wrapper:tab(name, order)
+		return nativeWin:tab(name, order)
+	end
+	function wrapper:setOpen(v)
+		nativeWin:setOpen(v)
+	end
+	function wrapper:toggle()
+		nativeWin:toggle()
+	end
+	return wrapper
+end
+
+end
+
+-- ===== 99_boot.luau =====
+do
+--[[
+	钻探至地球核心 · 启动 / 界面装配（全中文）
+]]
+
+local Players = game:GetService("Players")
+local S = HUB.State
+local T = HUB.Theme
+
+local win = HUB.UIKit:createWindow({
+	Title = "钻探至地球核心",
+	Subtitle = "v" .. HUB.Version .. " · 战斗 / 挖矿 / 传送 / 透视",
+	Keybind = Enum.KeyCode.RightControl,
+})
+HUB.Window = win
+win:setOpen(true)
+
+---------------------------------------------------------------------
+-- 战斗
+---------------------------------------------------------------------
+---------------------------------------------------------------------
+-- 挖矿
+---------------------------------------------------------------------
+local tabMine = win:tab("主要", 1)
+
+local secAura = tabMine:section("杀戮光环")
+
+secAura:toggle({
+	Text = "开启杀戮光环",
+	Default = false,
+	Callback = function(v)
+		S.KillAura.Enabled = v
+		if v then
+			S.AutoMine.Enabled = false
+			HUB.Notify("杀戮光环已开启", "ok")
+		end
+	end,
+})
+secAura:slider({
+	Text = "攻击范围（近战约 18）",
+	Min = 5,
+	Max = 500,
+	Default = 18,
+	Flag = "AuraRange",
+	Callback = function(v)
+		S.KillAura.Range = v
+	end,
+})
+
+
+local secMine = tabMine:section("自动传送挖矿")
+secMine:paragraph("自动飞到最近的矿点，换镐子猛敲，敲完换下一块。", 30)
+secMine:toggle({
+	Text = "开启自动挖矿",
+	Default = false,
+	Callback = function(v)
+		S.AutoMine.Enabled = v
+		if v then
+			S.KillAura.Enabled = false
+			HUB.Notify("自动挖矿已开启", "ok")
+		end
+	end,
+})
+secMine:dropdown({
+	Text = "挖哪种矿",
+	Values = { "全部", "煤炭", "铁矿", "黄金", "蠕虫煤" },
+	Default = "全部",
+	Callback = function(v)
+		local map = {
+			["全部"] = "全部",
+			["煤炭"] = "Coal",
+			["铁矿"] = "Iron",
+			["黄金"] = "Gold",
+			["蠕虫煤"] = "WormCoal",
+		}
+		S.AutoMine.OreType = map[v] or "全部"
+	end,
+})
+local secPick = tabMine:section("全图拾取")
+secPick:paragraph("飞到地上每件掉落物旁边并拾取，中文名会显示在下面的统计里。", 30)
+secPick:toggle({
+	Text = "开启全图拾取",
+	Default = false,
+	Callback = function(v)
+		S.AutoPickup.Enabled = v
+		if v then
+			HUB.Notify("全图拾取已开启", "ok")
+		end
+	end,
+})
+local pickCats = {
+	{ key = "武器", label = "武器" },
+	{ key = "镐子", label = "镐子" },
+	{ key = "医疗包", label = "医疗包" },
+	{ key = "药水", label = "药水" },
+	{ key = "子弹", label = "子弹" },
+	{ key = "装备", label = "装备" },
+	{ key = "卖钱", label = "卖钱物品" },
+	{ key = "尸体", label = "尸体" },
+	{ key = "其他", label = "其他杂物" },
+}
+local pickDds = {}
+for _, def in ipairs(pickCats) do
+	pickDds[def.key] = secPick:dropdown({
+		Text = "只捡这些" .. def.label .. "（不选=全部）",
+		Values = HUB.allItemNamesByCat(def.key),
+		Multi = true,
+		Searchable = true,
+		Callback = function(selected)
+			S.AutoPickup.Filters[def.key] = selected or {}
+		end,
+	})
+	secPick:toggle({
+		Text = "捡" .. def.label,
+		Default = true,
+		Callback = function(v)
+			S.AutoPickup.Cats[def.key] = v
+		end,
+	})
+end
+
+secPick:slider({
+	Text = "拾取半径",
+	Min = 200,
+	Max = 6000,
+	Default = 4000,
+	Flag = "PickRadius",
+	Callback = function(v)
+		S.AutoPickup.MaxDistance = v
+	end,
+})
+secPick:slider({
+	Text = "拾取间隔（0.01 秒）",
+	Min = 5,
+	Max = 100,
+	Default = 35,
+	Flag = "PickDelay",
+	Callback = function(v)
+		S.AutoPickup.Delay = v / 100
+	end,
+})
+
+local secTrip = tabMine:section("一键烧尸体")
+
+secTrip:toggle({
+	Text = "开启一键烧尸体",
+	Default = false,
+	Callback = function(v)
+		S.Burn.Enabled = v
+		if v then
+			HUB.Notify("一键烧尸体已开启：自动背尸体 → 熔炉", "ok")
+		end
+	end,
+})
+secTrip:slider({
+	Text = "一次最多拿几个（背几具）",
+	Min = 1,
+	Max = 30,
+	Default = 10,
+	Flag = "BurnMax",
+	Callback = function(v)
+		S.Burn.Max = v
+	end,
+})
+secTrip:slider({
+	Text = "找尸体半径",
+	Min = 200,
+	Max = 6000,
+	Default = 4000,
+	Flag = "BurnRadius",
+	Callback = function(v)
+		S.Burn.Radius = v
+	end,
+})
+secTrip:slider({
+	Text = "背/烧的间隔（0.01 秒）",
+	Min = 5,
+	Max = 100,
+	Default = 30,
+	Flag = "BurnDelay",
+	Callback = function(v)
+		S.Burn.Delay = v / 100
+	end,
+})
+
+local pickValueLabel = secPick:paragraph("待捡卖钱物品总价值：0", 24)
+
+local secMineStat = tabMine:section("统计")
+local mineStatLabel = secMineStat:paragraph("已挖矿块：0　已拾取：0", 26)
+
+---------------------------------------------------------------------
+-- 传送
+---------------------------------------------------------------------
+local tabTp = win:tab("传送", 2)
+
+-- 物品传送
+local secTpItem = tabTp:section("物品传送")
+local itemMap = {}
+local itemLabels = { "点下面的刷新按钮" }
+local itemDd
+itemDd = secTpItem:dropdown({
+	Text = "附近物品（中文名）",
+	Values = itemLabels,
+	Callback = function() end,
+})
+
+local function refreshItemList()
+	itemMap = {}
+	local labels = {}
+	local items = HUB.getDroppedItems(3000)
+	for i, it in ipairs(items) do
+		if i > 40 then
+			break
+		end
+		local label = string.format("%s（%d 米）", HUB.zhName(it.name), math.floor(it.dist))
+		-- 重名时加序号
+		if itemMap[label] then
+			label = label .. " #" .. i
+		end
+		itemMap[label] = it
+		table.insert(labels, label)
+	end
+	if #labels == 0 then
+		labels = { "附近没有掉落物" }
+	end
+	itemDd:refresh(labels)
+	return #items
+end
+
+secTpItem:button({
+	Text = "刷新附近物品",
+	Callback = function()
+		local n = refreshItemList()
+		HUB.Notify("附近掉落物共 " .. n .. " 件", "ok")
+	end,
+})
+secTpItem:button({
+	Text = "传送到选中的物品",
+	Callback = function()
+		local target = itemMap[itemDd:get()]
+		if not target or not target.part then
+			HUB.Notify("先刷新并选中一件物品", "warn")
+			return
+		end
+		local myRoot = HUB.rootPart()
+		if myRoot then
+			myRoot.CFrame = CFrame.new(target.part.Position + Vector3.new(0, 2, 0))
+			HUB.Notify("已传送到：" .. HUB.zhName(target.name), "ok")
+		end
+	end,
+})
+secTpItem:button({
+	Text = "直接过去捡（传送 + 拾取）",
+	Callback = function()
+		local target = itemMap[itemDd:get()]
+		if not target or not target.part then
+			HUB.Notify("先刷新并选中一件物品", "warn")
+			return
+		end
+		local myRoot = HUB.rootPart()
+		if myRoot then
+			myRoot.CFrame = CFrame.new(target.part.Position + Vector3.new(0, 1.2, 0))
+			task.wait(0.1)
+			if HUB.pickupItem(target.model) then
+				HUB.Notify("已拾取：" .. HUB.zhName(target.name), "ok")
+			else
+				HUB.Notify("拾取失败", "err")
+			end
+		end
+	end,
+})
+
+local oreTypeMap = { ["全部"] = "全部", ["煤炭"] = "Coal", ["铁矿"] = "Iron", ["黄金"] = "Gold", ["蠕虫煤"] = "WormCoal" }
+local oreDd = secTpItem:dropdown({
+	Text = "矿石类型",
+	Values = { "全部", "煤炭", "铁矿", "黄金", "蠕虫煤" },
+	Default = "全部",
+	Callback = function() end,
+})
+secTpItem:button({
+	Text = "传送到最近的这块矿",
+	Callback = function()
+		local ores = HUB.getOres(3000, oreTypeMap[oreDd:get()] or "全部")
+		if #ores == 0 then
+			HUB.Notify("附近没找到这种矿", "warn")
+			return
+		end
+		local ore = ores[1]
+		local myRoot = HUB.rootPart()
+		if myRoot then
+			myRoot.CFrame = CFrame.lookAt(ore.part.Position + Vector3.new(4, 2, 0), ore.part.Position)
+			HUB.Notify("已传送到：" .. HUB.zhOre(ore.oreType) .. "（" .. math.floor(ore.dist) .. " 米外）", "ok")
+		end
+	end,
+})
+secTpItem:button({
+	Text = "传送到钻机车",
+	Callback = function()
+		HUB.teleportToVehicle()
+	end,
+})
+secTpItem:button({
+	Text = "传送到熔炉",
+	Callback = function()
+		HUB.teleportToFurnace()
+	end,
+})
+secTpItem:button({
+	Text = "传送到最近的宝箱",
+	Callback = function()
+		local chests = HUB.getChests(3000)
+		if #chests == 0 then
+			HUB.Notify("附近没有宝箱", "warn")
+			return
+		end
+		local c = chests[1]
+		local myRoot = HUB.rootPart()
+		if myRoot then
+			myRoot.CFrame = CFrame.new(c.part.Position + Vector3.new(0, 3, 3))
+			HUB.Notify("已传送到宝箱：" .. HUB.zhName(c.name), "ok")
+		end
+	end,
+})
+
+-- 玩家传送
+local secTpPlayer = tabTp:section("玩家传送")
+local function playerList()
+	local list = {}
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= Players.LocalPlayer then
+			table.insert(list, plr.Name)
+		end
+	end
+	if #list == 0 then
+		list = { "房间里只有你" }
+	end
+	return list
+end
+
+local playerDd
+playerDd = secTpPlayer:dropdown({
+	Text = "选择玩家",
+	Values = playerList(),
+	Callback = function() end,
+})
+secTpPlayer:button({
+	Text = "刷新玩家列表",
+	Callback = function()
+		playerDd:refresh(playerList())
+		HUB.Notify("已刷新玩家列表", "ok")
+	end,
+})
+secTpPlayer:button({
+	Text = "传送到选中玩家",
+	Callback = function()
+		local name = playerDd:get()
+		if HUB.teleportToPlayer(name) then
+			HUB.Notify("已传送到：" .. tostring(name), "ok")
+		else
+			HUB.Notify("传送失败，对方可能已离开", "err")
+		end
+	end,
+})
+secTpPlayer:toggle({
+	Text = "点击地面传送（点哪走哪）",
+	Default = false,
+	Callback = function(v)
+		S.ClickTP = v
+	end,
+})
+
+-- 坐标点
+local secTpPos = tabTp:section("坐标点")
+for i = 1, 3 do
+	secTpPos:button({
+		Text = "保存当前位置 #" .. i,
+		Callback = function()
+			if HUB.savePosition(i) then
+				HUB.Notify("已保存坐标 #" .. i, "ok")
+			end
+		end,
+	})
+	secTpPos:button({
+		Text = "传送回坐标 #" .. i,
+		Callback = function()
+			if HUB.loadPosition(i) then
+				HUB.Notify("已传送", "ok")
+			else
+				HUB.Notify("该坐标还没保存过", "warn")
+			end
+		end,
+	})
+end
+
+---------------------------------------------------------------------
+-- 透视
+---------------------------------------------------------------------
+local tabEsp = win:tab("透视", 3)
+
+-- 绘制总开关在最上面，高亮是绘制的一种
+local secDraw = tabEsp:section("绘制")
+secDraw:toggle({
+	Text = "绘制总开关",
+	Default = true,
+	Callback = function(v)
+		S.ESP.DrawEnabled = v
+		HUB.clearHighlights()
+	end,
+})
+secDraw:toggle({
+	Text = "高亮（给目标上色）",
+	Default = true,
+	Callback = function(v)
+		S.ESP.Highlight = v
+		HUB.clearHighlights()
+	end,
+})
+secDraw:toggle({
+	Text = "距离",
+	Default = false,
+	Callback = function(v)
+		S.ESP.ShowDistance = v
+		HUB.clearHighlights()
+	end,
+})
+secDraw:slider({
+	Text = "高亮浓度（越大越实）",
+	Min = 5,
+	Max = 100,
+	Default = 65,
+	Flag = "EspFill",
+	Callback = function(v)
+		S.ESP.FillTransparency = 1 - v / 100
+		S.ESP.Filled = true
+		HUB.clearHighlights()
+	end,
+})
+secDraw:toggle({
+	Text = "只要描边（不填充颜色）",
+	Default = false,
+	Callback = function(v)
+		S.ESP.Filled = not v
+		HUB.clearHighlights()
+	end,
+})
+secDraw:slider({
+	Text = "怪物 / 物品显示距离",
+	Min = 100,
+	Max = 3000,
+	Default = 600,
+	Flag = "EspDist",
+	Callback = function(v)
+		S.ESP.MaxDistance = v
+	end,
+})
+secDraw:slider({
+	Text = "矿石显示距离",
+	Min = 50,
+	Max = 2000,
+	Default = 400,
+	Flag = "EspOreDist",
+	Callback = function(v)
+		S.ESP.OreDistance = v
+	end,
+})
+
+-- 画什么
+local secWhat = tabEsp:section("画什么")
+secWhat:toggle({
+	Text = "怪物（只上色，不写字）",
+	Default = true,
+	Callback = function(v)
+		S.ESP.Enemies = v
+	end,
+})
+secWhat:toggle({
+	Text = "首领（只上色）",
+	Default = true,
+	Callback = function(v)
+		S.ESP.Boss = v
+	end,
+})
+secWhat:toggle({
+	Text = "矿石",
+	Default = true,
+	Callback = function(v)
+		S.ESP.Ores = v
+	end,
+})
+secWhat:dropdown({
+	Text = "只看这几种矿（不选=全部）",
+	Values = { "煤炭", "铁矿", "黄金", "蠕虫煤", "水晶", "钻石", "虚空矿" },
+	Multi = true,
+	Callback = function(selected)
+		S.ESP.OreFilter = selected or {}
+	end,
+})
+local catDefs = {
+	{ key = "武器", label = "武器" },
+	{ key = "镐子", label = "镐子" },
+	{ key = "医疗包", label = "医疗包" },
+	{ key = "药水", label = "药水" },
+	{ key = "子弹", label = "子弹" },
+	{ key = "装备", label = "装备" },
+	{ key = "卖钱", label = "卖钱物品" },
+	{ key = "尸体", label = "尸体" },
+	{ key = "其他", label = "其他杂物" },
+}
+local catDds = {}
+for _, def in ipairs(catDefs) do
+	catDds[def.key] = secWhat:dropdown({
+		Text = "只画这些" .. def.label .. "（不选=全部）",
+		Values = HUB.allItemNamesByCat(def.key),
+		Multi = true,
+		Searchable = true,
+		Callback = function(selected)
+			S.ESP.Filters[def.key] = selected or {}
+			HUB.clearHighlights()
+		end,
+	})
+	secWhat:toggle({
+		Text = def.label,
+		Default = true,
+		Callback = function(v)
+			S.ESP.Cats[def.key] = v
+			HUB.clearHighlights()
+		end,
+	})
+end
+
+local drawValueLabel = secWhat:paragraph("视野内卖钱物品总价值：0", 24)
+
+local chestNameDd
+chestNameDd = secWhat:dropdown({
+	Text = "只画这些宝箱（不选=全部）",
+	Values = { "正在读取地上的宝箱…" },
+	Multi = true,
+	Callback = function(selected)
+		S.ESP.ChestFilter = selected or {}
+	end,
+})
+secWhat:toggle({
+	Text = "地牢入口",
+	Default = false,
+	Callback = function(v)
+		S.ESP.Gates = v
+	end,
+})
+
+-- 颜色
+local secColor = tabEsp:section("颜色")
+local function bindColor(text, field, default)
+	secColor:colorpicker({
+		Text = text,
+		Default = default,
+		Callback = function(color)
+			HUB.ESPColors[field] = color
+			HUB.clearHighlights()
+		end,
+	})
+end
+bindColor("怪物", "Enemy", Color3.fromRGB(255, 70, 70))
+bindColor("首领", "Boss", Color3.fromRGB(255, 60, 200))
+bindColor("矿石", "Ore", Color3.fromRGB(255, 200, 40))
+bindColor("武器", "ItemWeapon", Color3.fromRGB(255, 140, 60))
+bindColor("镐子", "ItemPickaxe", Color3.fromRGB(200, 170, 255))
+bindColor("医疗包", "ItemMed", Color3.fromRGB(90, 220, 120))
+bindColor("药水", "ItemPotion", Color3.fromRGB(150, 130, 255))
+bindColor("子弹", "ItemAmmo", Color3.fromRGB(240, 220, 120))
+bindColor("装备", "ItemGear", Color3.fromRGB(120, 200, 255))
+bindColor("卖钱物品", "ItemValuable", Color3.fromRGB(255, 190, 90))
+bindColor("高级宝箱", "ChestHigh", Color3.fromRGB(255, 200, 60))
+bindColor("普通宝箱", "ChestLow", Color3.fromRGB(150, 120, 200))
+bindColor("地牢入口", "Gate", Color3.fromRGB(90, 180, 255))
+secColor:button({
+	Text = "恢复默认颜色",
+	Callback = function()
+		for k, v in pairs({
+			Enemy = Color3.fromRGB(255, 70, 70),
+			Boss = Color3.fromRGB(255, 60, 200),
+			Ore = Color3.fromRGB(255, 200, 40),
+			ItemWeapon = Color3.fromRGB(255, 140, 60),
+			ItemPickaxe = Color3.fromRGB(200, 170, 255),
+			ItemMed = Color3.fromRGB(90, 220, 120),
+			ItemPotion = Color3.fromRGB(150, 130, 255),
+			ItemAmmo = Color3.fromRGB(240, 220, 120),
+			ItemGear = Color3.fromRGB(120, 200, 255),
+			ItemValuable = Color3.fromRGB(255, 190, 90),
+			ChestHigh = Color3.fromRGB(255, 200, 60),
+			ChestLow = Color3.fromRGB(150, 120, 200),
+			Gate = Color3.fromRGB(90, 180, 255),
+		}) do
+			HUB.ESPColors[k] = v
+		end
+		HUB.clearHighlights()
+		HUB.Notify("颜色已恢复默认", "ok")
+	end,
+})
+
+---------------------------------------------------------------------
+-- 导航
+---------------------------------------------------------------------
+local tabPlayer = win:tab("玩家", 4)
+local secMove = tabPlayer:section("移动")
+secMove:slider({
+	Text = "移动速度",
+	Min = 16,
+	Max = 300,
+	Default = 16,
+	Flag = "WalkSpeed",
+	Callback = function(v)
+		HUB.setWalkSpeed(v)
+	end,
+})
+secMove:toggle({
+	Text = "锁定移动速度",
+	Default = true,
+	Callback = function(v)
+		S.WalkSpeedLocked = v
+	end,
+})
+secMove:slider({
+	Text = "跳跃力",
+	Min = 50,
+	Max = 300,
+	Default = 50,
+	Flag = "JumpPower",
+	Callback = function(v)
+		HUB.applyJump(v)
+	end,
+})
+secMove:toggle({
+	Text = "无限跳跃",
+	Default = false,
+	Callback = function(v)
+		S.InfiniteJump = v
+	end,
+})
+
+
+secMove:toggle({
+	Text = "穿墙",
+	Default = false,
+	Callback = function(v)
+		HUB.setNoclip(v)
+	end,
+})
+
+local secFly = tabPlayer:section("飞行")
+secFly:toggle({
+	Text = "开启飞行",
+	Default = false,
+	Callback = function(v)
+		HUB.setFly(v)
+	end,
+})
+secFly:slider({
+	Text = "飞行速度",
+	Min = 10,
+	Max = 300,
+	Default = 60,
+	Flag = "FlySpeed",
+	Callback = function(v)
+		S.FlySpeed = v
+	end,
+})
+
+local secChar = tabPlayer:section("角色")
+secChar:button({
+	Text = "重置角色（死亡重生）",
+	Callback = function()
+		local hum = HUB.humanoid()
+		if hum then
+			hum.Health = 0
+		end
+	end,
+})
+secChar:button({
+	Text = "向上飞 200 格",
+	Callback = function()
+		local root = HUB.rootPart()
+		if root then
+			root.CFrame = root.CFrame + Vector3.new(0, 200, 0)
+		end
+	end,
+})
+
+---------------------------------------------------------------------
+-- 视觉
+---------------------------------------------------------------------
+local tabVisual = win:tab("视觉", 5)
+local secLight = tabVisual:section("光照")
+secLight:toggle({
+	Text = "全亮（夜色 / 雾 / 阴影全开）",
+	Default = false,
+	Callback = function(v)
+		HUB.setFullbright(v)
+	end,
+})
+secLight:slider({
+	Text = "环境亮度",
+	Min = 0,
+	Max = 255,
+	Default = 70,
+	Flag = "Ambient",
+	Callback = function(v)
+		HUB.setAmbient(v)
+	end,
+})
+secLight:slider({
+	Text = "视野范围",
+	Min = 70,
+	Max = 120,
+	Default = 70,
+	Flag = "Fov",
+	Callback = function(v)
+		HUB.setFov(v)
+	end,
+})
+secLight:toggle({
+	Text = "关闭后期特效",
+	Default = false,
+	Callback = function(v)
+		HUB.setCleanVisuals(v)
+	end,
+})
+
+local secPerf = tabVisual:section("性能")
+secPerf:toggle({
+	Text = "低画质",
+	Default = false,
+	Callback = function(v)
+		HUB.setLowGraphics(v)
+	end,
+})
+
+secPerf:button({
+	Text = "解锁帧率（最高 240）",
+	Callback = function()
+		if HUB.setFpsCap(240) then
+			HUB.Notify("已请求解除帧率限制", "ok")
+		else
+			HUB.Notify("当前执行器不支持改帧率", "warn")
+		end
+	end,
+})
+
+---------------------------------------------------------------------
+-- 杂项
+---------------------------------------------------------------------
+local tabMisc = win:tab("杂项", 6)
+local secMisc = tabMisc:section("通用")
+secMisc:toggle({
+	Text = "反挂机",
+	Default = false,
+	Callback = function(v)
+		S.AntiAfk = v
+	end,
+})
+secMisc:toggle({
+	Text = "静音所有音效",
+	Default = false,
+	Callback = function(v)
+		HUB.setMuteAll(v)
+	end,
+})
+secMisc:button({
+	Text = "隐藏界面（右边圆钮打开）",
+	Callback = function()
+		win:setOpen(false)
+	end,
+})
+
+local secAbout = tabMisc:section("关于")
+secAbout:paragraph(
+	"钻探至地球核心 v" .. HUB.Version
+		.. "\n执行器：" .. (type(getexecutorname) == "function" and tostring(getexecutorname()) or "未知")
+		.. "\n按键：Ctrl 开关窗口",
+	44
+)
+
+---------------------------------------------------------------------
+-- 动态刷新（统计 / 状态 / 武器）
+---------------------------------------------------------------------
+-- 物品 / 宝箱筛选列表自动更新（不用点刷新）
+task.spawn(function()
+	local lastCat, lastChests, lastPick = {}, "", {}
+	while true do
+		task.wait(3)
+		pcall(function()
+			local chests = HUB.listGroundChestNames(5000)
+			local csig = table.concat(chests, "|")
+			if csig ~= lastChests then
+				lastChests = csig
+				if #chests == 0 then
+					chests = { "附近暂时没有宝箱" }
+				end
+				chestNameDd:refreshValues(chests)
+			end
+		end)
+	end
+end)
+
+task.spawn(function()
+	while true do
+		task.wait(0.5)
+		pcall(function()
+			pcall(HUB.findPickTarget)
+			local vals = S.Values or {}
+			drawValueLabel.Text = "视野内卖钱物品总价值：" .. HUB.formatNum(vals.DrawTotal or 0)
+			pickValueLabel.Text = "待捡卖钱物品总价值：" .. HUB.formatNum(vals.PickTotal or 0)
+			local mined, picked = HUB.getMiningStats()
+			mineStatLabel.Text = "已挖矿块：" .. tostring(mined) .. "　已拾取：" .. tostring(picked)
+			local char = Players.LocalPlayer.Character
+			local tool = char and char:FindFirstChildOfClass("Tool")
+			weaponLabel.Text = "当前武器：" .. (tool and HUB.zhName(tool.Name) or "空手")
+		end)
+	end
+end)
+
+HUB.Notify("钻探至地球核心 v" .. HUB.Version .. " 已加载 · 点右侧圆钮打开", "ok", 5)
+
+end
+
