@@ -7188,14 +7188,9 @@ table.insert(activeConnections, RunService.Heartbeat:Connect(function(dt)
         if isMinigame then
             local fUI = pg and pg:FindFirstChild("MainGui") and pg.MainGui:FindFirstChild("Fishing")
             if fUI and fUI.Visible then
-                if Config.AnchorBar then
-                    local barFrame = fUI:FindFirstChild("BarFrame")
-                    if barFrame and barFrame:FindFirstChild("Bar") then
-                        -- 直接置中，避免每帧创建一个 Tween 对象（长时间钓鱼时的 GC 压力）
-                        barFrame.Bar.Position = UDim2.new(0.5, 0, 0.5, 0)
-                    end
-                end
-
+                -- 锚定条的实际置中在下面的 RenderStepped 里做（必须在游戏 Tween 之后写，
+                -- 否则同一帧会被游戏的 Tween 盖回去，就是"条一直在抖"）。
+                -- 这里不再自己画标记，用的就是游戏原装那条 Bar。
                 if Config.AutoSlam and fUI:FindFirstChild("PerfectButton") and fUI.PerfectButton.Visible then
                     if Events:FindFirstChild("Slam") then
                         Events.Slam:FireServer()
@@ -7699,7 +7694,11 @@ local function CheckAndPlayRhythm(pg)
 
     local nowTick = tick()
     if nowTick - rhythmState.lastClean > 4.0 then
-        rhythmState.hitNotes = {}
+        -- 只清「已经销毁」的音符记录，不要整表清空。
+        -- 整表清空会让还没消失的音符在下一帧被再点一次（实测会出现重复按键）。
+        for inst in pairs(rhythmState.hitNotes) do
+            if not inst.Parent then rhythmState.hitNotes[inst] = nil end
+        end
         rhythmState.lastClean = nowTick
     end
 
@@ -7716,54 +7715,71 @@ local function CheckAndPlayRhythm(pg)
             local btn = prog:FindFirstChild("Button")
             local targetScaleY = (bFrame and bFrame.Position.Y.Scale) or 0.85
 
+            -- 只取这一轨里「离判定线最近」的那一个音符。
+            -- 原版是「范围内每个音符都点一次」，结果一次按键会判定 2~3 次：
+            -- 第一次消掉正确音符，后面几次就落到旁边的陷阱音符上 -> 被判 miss。
+            local best, bestDiff = nil, 9
             for _, child in ipairs(prog:GetChildren()) do
                 if child.Name == "Note_FX" and child:IsA("GuiObject") and child.Visible then
-                    local noteScaleY = child.Position.Y.Scale
-                    local diff = math.abs(noteScaleY - targetScaleY)
+                    local d = math.abs(child.Position.Y.Scale - targetScaleY)
+                    if d < bestDiff then best, bestDiff = child, d end
+                end
+            end
 
-                    local triggerThreshold = 0.16
-                    if Config.RhythmHumanizer ~= false then
-                        triggerThreshold = math.random(8, 19) / 100
+            local triggerThreshold = 0.16
+            if Config.RhythmHumanizer ~= false then
+                triggerThreshold = math.random(8, 19) / 100
+            end
+
+            if best and bestDiff <= triggerThreshold and not rhythmState.hitNotes[best] then
+                rhythmState.hitNotes[best] = true
+
+                -- 陷阱音符识别：游戏生成错误音符时会把它染成 Color3.fromRGB(255, 40, 40)（红色）。
+                -- 点到陷阱音符 = 直接判 miss，所以这里看到红色就跳过，让它自己飘过去。
+                local function isTrapColor(col)
+                    if typeof(col) ~= "Color3" then return false end
+                    local r, g, b = col.R * 255, col.G * 255, col.B * 255
+                    return r > 200 and g < 90 and b < 90
+                end
+                local function looksLikeTrap(note)
+                    if isTrapColor(note.BackgroundColor3) then return true end
+                    if note:IsA("ImageLabel") or note:IsA("ImageButton") then
+                        if isTrapColor(note.ImageColor3) then return true end
                     end
-
-                    if diff <= triggerThreshold and not rhythmState.hitNotes[child] then
-                        rhythmState.hitNotes[child] = true
-
-                        local accuracy = Config.RhythmAccuracy or 95
-                        local willHit = (math.random(1, 100) <= accuracy)
-
-                        if willHit then
-                            local delaySec = (Config.RhythmHumanizer ~= false) and (math.random(10, 35) / 1000) or 0
-                            task.delay(delaySec, function()
-                                if btn and btn:IsA("GuiButton") then
-                                    pcall(function()
-                                        if firesignal then
-                                            if btn.MouseButton1Click then firesignal(btn.MouseButton1Click) end
-                                            if btn.Activated then firesignal(btn.Activated) end
-                                        end
-                                        if getconnections then
-                                            for _, c in ipairs(getconnections(btn.MouseButton1Click)) do
-                                                if c.Fire then c:Fire() elseif c.Function then c.Function() end
-                                            end
-                                        end
-                                    end)
-                                end
-
-                                if VirtualInputManager and laneData.keyCode then
-                                    pcall(function()
-                                        VirtualInputManager:SendKeyEvent(true, laneData.keyCode, false, game)
-                                        task.delay(0.02, function()
-                                            pcall(function() VirtualInputManager:SendKeyEvent(false, laneData.keyCode, false, game) end)
-                                        end)
-                                    end)
-                                end
-
-                                if Events and Events:FindFirstChild("RhythmHit") then
-                                    pcall(function() Events.RhythmHit:FireServer("hit") end)
-                                end
-                            end)
+                    for _, d in ipairs(note:GetDescendants()) do
+                        if d:IsA("GuiObject") then
+                            if isTrapColor(d.BackgroundColor3) then return true end
+                            if (d:IsA("ImageLabel") or d:IsA("ImageButton")) and isTrapColor(d.ImageColor3) then return true end
                         end
                     end
+                    for _, d in ipairs(note:GetDescendants()) do
+                        if d:IsA("TextLabel") and isTrapColor(d.TextColor3) then return true end
+                    end
+                    return false
+                end
+
+                local isTrap = looksLikeTrap(best)
+                local accuracy = Config.RhythmAccuracy or 95
+                local willHit = (not isTrap) and (math.random(1, 100) <= accuracy)
+
+                if willHit and not isTrap then
+                    local delaySec = (Config.RhythmHumanizer ~= false) and (math.random(10, 35) / 1000) or 0
+                    task.delay(delaySec, function()
+                        -- 只发一次「真实按键」：游戏自己的 A/S/D 处理函数会判定并上报，
+                        -- 不会再额外点按钮 / 额外 FireServer（那些会造成重复判定，落到陷阱音符上）。
+                        local acted = false
+                        if VirtualInputManager and laneData.keyCode then
+                            acted = pcall(function()
+                                VirtualInputManager:SendKeyEvent(true, laneData.keyCode, false, game)
+                                task.delay(0.02, function()
+                                    pcall(function() VirtualInputManager:SendKeyEvent(false, laneData.keyCode, false, game) end)
+                                end)
+                            end)
+                        end
+                        if not acted and Events and Events:FindFirstChild("RhythmHit") then
+                            pcall(function() Events.RhythmHit:FireServer("hit") end)
+                        end
+                    end)
                 end
             end
         end
@@ -8466,6 +8482,33 @@ end)
 
 -- 主渲染循环：更新所有 ESP 与鱼圈（10Hz 节流，避免每帧扫描造成手机内存/CPU 压力）
 local lastRingUpdate = 0
+
+-- 清理旧版本残留的自绘标记（有的老版本会往 BarFrame 里塞一条 __HWFixedBar，
+-- 不清掉就会和原装条叠在一起，看起来更乱）
+do
+    local pg0 = LocalPlayer:FindFirstChild("PlayerGui")
+    if pg0 then
+        for _, d in ipairs(pg0:GetDescendants()) do
+            if d.Name == "__HWFixedBar" then pcall(function() d:Destroy() end) end
+        end
+    end
+end
+
+-- 锚定条：每帧在「渲染前」把原装条按在正中。
+-- 游戏自己的 Tween 是在 Heartbeat 阶段推进的，而 RenderStepped 更晚；
+-- 同一帧里最后一次写入是我们的值 -> 原装条稳定停在中间，不会再来回抖/闪。
+table.insert(activeConnections, RunService.RenderStepped:Connect(function()
+    if not isRunning or not Config.AnchorBar then return end
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    local f = pg and pg:FindFirstChild("MainGui") and pg.MainGui:FindFirstChild("Fishing")
+    if not (f and f.Visible) then return end
+    local bf = f:FindFirstChild("BarFrame")
+    local bar = bf and bf:FindFirstChild("Bar")
+    if not bar then return end
+    if not bar.Visible then bar.Visible = true end
+    bar.Position = UDim2.new(0.5, 0, 0.5, 0)
+end))
+
 -- 无雾无雨：相机下的粒子（天气 VFX）列表缓存，1 秒刷新一次
 local noFogCamCache, noFogCamAcc = {}, 0
 table.insert(activeConnections, RunService.RenderStepped:Connect(function()
@@ -9439,21 +9482,108 @@ local function installRodSkinBeauty()
     	end
     end
 
+    -- 单个实例上色（和游戏 RodColor 的规则一致），拆分出来是为了
+    -- 「后来才出现的部件」只涂它自己，不用整份模型重涂
+    local function paintOne(inst, color)
+    	if not (inst and color) then return end
+    	if inst:IsA("BasePart") and inst.Name == "Color" then
+    		inst.Color = color
+    	elseif inst:IsA("SpecialMesh") and (inst.Name == "Color" or (inst.Parent and inst.Parent.Name == "Color")) then
+    		inst.VertexColor = Vector3.new(color.R, color.G, color.B)
+    	elseif inst:IsA("ParticleEmitter") or inst:IsA("Beam") or inst:IsA("Trail") then
+    		inst.Color = ColorSequence.new(color)
+    	elseif inst:IsA("Light") then
+    		inst.Color = color
+    	end
+    end
+
     local function paint(model, color)
     	if typeof(color) ~= "Color3" then return end
-    	local function one(inst)
-    		if inst:IsA("BasePart") and inst.Name == "Color" then
-    			inst.Color = color
-    		elseif inst:IsA("SpecialMesh") and (inst.Name == "Color" or (inst.Parent and inst.Parent.Name == "Color")) then
-    			inst.VertexColor = Vector3.new(color.R, color.G, color.B)
-    		elseif inst:IsA("ParticleEmitter") or inst:IsA("Beam") or inst:IsA("Trail") then
-    			inst.Color = ColorSequence.new(color)
-    		elseif inst:IsA("Light") then
-    			inst.Color = color
-    		end
-    	end
-    	one(model)
-    	for _, d in ipairs(model:GetDescendants()) do one(d) end
+    	paintOne(model, color)
+    	for _, d in ipairs(model:GetDescendants()) do paintOne(d, color) end
+    end
+
+    -- 读游戏原生调色条（PlayerGui.Fisher_GUI.Fisher.ColorFrame）的三根把手位置。
+    -- 原生 UI 的把手 X 位置（0~1）就是 H / S / V，和游戏 RodColor.GetHSV 完全一致。
+    local function readNativeColor()
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        local fg = pg and pg:FindFirstChild("Fisher_GUI")
+        local fisher = fg and fg:FindFirstChild("Fisher")
+        local cf = fisher and fisher:FindFirstChild("ColorFrame")
+        if not cf then return nil end
+        local function frac(name)
+            local bar = cf:FindFirstChild(name)
+            local hf = bar and bar:FindFirstChild("ButtonFrame")
+            if not hf then return nil end
+            return math.clamp(hf.Position.X.Scale, 0, 1)
+        end
+        local h, s, v = frac("HueFrame"), frac("SaturationFrame"), frac("BrightnessFrame")
+        if not (h and s and v) then return nil end
+        return Color3.fromHSV(h, s, v)
+    end
+
+    -- 记录「本次脚本实例」已经挂过监听的把手。
+    -- 不能用 GetAttribute 做标记：属性会跨脚本实例保留，重新注入后旧连接已死，
+    -- 新实例看到标记就跳过 -> 监听等于没挂（实测就是这个坑）。
+    local hookedColorHandles = {}
+
+    -- 记住最近一次原生调色选的颜色，重新注入/重生后还能接着用
+    local function persistNativeColor(c)
+        if getgenv then getgenv().HW_NativeColor = c end
+    end
+    local function persistedNativeColor()
+        local c = getgenv and getgenv().HW_NativeColor
+        if typeof(c) == "Color3" then return c end
+        return nil
+    end
+
+    -- 原生调色条的把手一动，就把颜色刷到我们这份皮肤上（实时跟随）
+    local function hookNativeColorBars()
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        local fg = pg and pg:FindFirstChild("Fisher_GUI")
+        local fisher = fg and fg:FindFirstChild("Fisher")
+        local cf = fisher and fisher:FindFirstChild("ColorFrame")
+        if not cf then return end
+        for _, nm in ipairs({"HueFrame", "SaturationFrame", "BrightnessFrame"}) do
+            local bar = cf:FindFirstChild(nm)
+            local hf = bar and bar:FindFirstChild("ButtonFrame")
+            if hf and not hookedColorHandles[hf] then
+                hookedColorHandles[hf] = true
+                hf:GetPropertyChangedSignal("Position"):Connect(function()
+                    local c = readNativeColor()
+                    if not c then return end
+                    state.nativeColor = c
+                    persistNativeColor(c)
+                    if state.model and state.skinCfg then
+                        state.skinColor = c
+                        pcall(paint, state.model, c)
+                    end
+                end)
+            end
+        end
+    end
+
+
+    -- 玩家在游戏里保存的皮肤颜色：ReplicatedStorage.Data[UserId].RodSkinColor[皮肤名]
+    -- 值是编码后的 HSV 字符串（"h,s,v"，三个 0~1 小数），从没选过时是空串
+    local function savedColorString(name)
+    	local data = RS:FindFirstChild("Data")
+    	local me = data and data:FindFirstChild(tostring(LP.UserId))
+    	local folder = me and me:FindFirstChild("RodSkinColor")
+    	local sv = folder and folder:FindFirstChild(name)
+    	if not (sv and sv:IsA("StringValue")) then return "" end
+    	return sv.Value or ""
+    end
+
+    local function decodeColorString(raw)
+    	if type(raw) ~= "string" or raw == "" then return nil end
+    	local h, s, v = string.match(raw, "^([%d%.]+),([%d%.]+),([%d%.]+)$")
+    	if not (h and s and v) then return nil end
+    	local hh, ss, vv = tonumber(h), tonumber(s), tonumber(v)
+    	if not (hh and ss and vv) then return nil end
+    	local ok, c = pcall(Color3.fromHSV, hh, ss, vv)
+    	if ok and typeof(c) == "Color3" then return c end
+    	return nil
     end
 
 
@@ -9516,9 +9646,11 @@ local function installRodSkinBeauty()
     	if state.joint then state.joint:Destroy(); state.joint = nil end
     	if state.model then state.model:Destroy(); state.model = nil end
     	if state.hideConn then pcall(function() state.hideConn:Disconnect() end); state.hideConn = nil end
+    	if state.colorConn then pcall(function() state.colorConn:Disconnect() end); state.colorConn = nil end
     	if state.animConn then pcall(function() state.animConn:Disconnect() end); state.animConn = nil end
     	if state.specialTrack then pcall(function() state.specialTrack:Stop(0) end); state.specialTrack = nil end
     	state.smRoot, state.smRel = nil, nil
+    	state.skinCfg, state.skinColor, state.colorRaw, state.colorNext, state.nativeColor = nil, nil, nil, nil, nil
     	state.handle, state.tool = nil, nil
     	state.emitters, state.lights = nil, nil
     	state.sound, state.aura, state.tipAtt = nil, nil, nil
@@ -9541,7 +9673,22 @@ local function installRodSkinBeauty()
     	model.Name = FOLDER
     	prepare(model)
     	-- 只有 ColorSystem == true 的皮肤游戏才会染色，其它皮肤保持原色
-    	if cfg.ColorSystem == true and cfg.Color then paint(model, cfg.Color) end
+    	if cfg.ColorSystem == true then
+    		-- 优先用玩家在游戏里保存的颜色，从没选过才回退到皮肤默认色
+    		state.skinCfg   = cfg
+    		state.colorRaw  = savedColorString(currentSkin)
+    		state.nativeColor = state.nativeColor or persistedNativeColor()
+    		state.skinColor = state.nativeColor or decodeColorString(state.colorRaw) or cfg.Color
+    		if state.skinColor then pcall(paint, model, state.skinColor) end
+    		-- 模型里后来才出现的部件（粒子/Beam/灯光）也要跟着上色，
+    		-- 对应游戏 RodColor 的 Watch：只涂新出现的那一件，不整份重涂
+    		if state.colorConn then pcall(function() state.colorConn:Disconnect() end) end
+    		state.colorConn = model.DescendantAdded:Connect(function(d)
+    			if state.model ~= model then return end
+    			local c = state.skinColor
+    			if c then pcall(paintOne, d, c) end
+    		end)
+    	end
     	if cfg.Scale and cfg.Scale > 0 then pcall(function() model:ScaleTo(cfg.Scale) end) end
 
     	local mh = model:FindFirstChild("Handle")
@@ -9765,6 +9912,17 @@ local function installRodSkinBeauty()
     ------------------------------------------------------------
     local mirrorAcc = 0
     local function mirror()
+    	-- 恢复：改写游戏 Data，让背包/图鉴里也把皮肤显示成已装备。
+    	-- （之前一度停用是为了排查重叠；真正的重叠根因是"换竿只改关节、隐藏名单没更新"，
+    	--   那个已经修好了，所以这里恢复回来。）
+    	-- 旧说明：
+    	--   FishingRodInventory[竿].Skin = 当前皮肤
+    	--   RodSkin[皮肤].Owned = true
+    	--   RodSkinCount[皮肤] = 1
+    	-- 目的是让游戏背包里也把皮肤显示成"已装备"。
+    	-- 副作用是：游戏客户端看到 Skin 有值后会**自己再挂一份皮肤模型到鱼竿上**，
+    	-- 于是你身上同时有我们挂的一份 + 游戏挂的一份 —— 看起来就是两把皮肤重叠，
+    	-- 而且每换竿/重生都可能再来一份，模型越积越多 -> 卡一下 -> 闪退。
     	local me = RS:FindFirstChild("Data") and RS.Data:FindFirstChild(tostring(LP.UserId))
     	if not me then return end
     	local rodName = me:FindFirstChild("FishingRod") and me.FishingRod.Value or nil
@@ -9799,7 +9957,14 @@ local function installRodSkinBeauty()
     		end
     	end
 
-    	if state.model and state.model.Parent and state.joint and state.handle and state.handle ~= handle then
+    	-- 换竿 / 游戏重建了 Tool 实例：必须整份重挂。
+    	-- 原版只把关节 Part0 指到新竿上，但「隐藏真竿」用的名单是按旧竿扫出来的，
+    	-- 新竿部件名对不上 -> 真竿不隐、和皮肤叠在一起（用户看到的"重叠"）。
+    	if state.model and state.model.Parent and state.tool ~= tool then
+    		pcall(despawn)
+    		pcall(spawn, char, tool, handle)
+    		return
+    	elseif state.model and state.model.Parent and state.joint and state.handle and state.handle ~= handle then
     		local ok = pcall(function()
     			state.joint.Part0 = handle
     			state.joint.C0 = CFrame.new()
@@ -9827,6 +9992,24 @@ local function installRodSkinBeauty()
     		state.tool = tool
     		for _, d in ipairs(tool:GetDescendants()) do pcall(state.hideOne, d) end
     		state.hideConn = tool.DescendantAdded:Connect(state.hideOne)
+    	end
+
+    	-- 玩家在游戏里改颜色：每 0.5 秒比对一次保存值，变了才整份重涂
+    	-- （不做每帧 paint 全模型，那样粒子/灯光一多会直接掉帧）
+    	if state.skinCfg and state.model then
+    		state.colorNext = state.colorNext or 0
+    		if now >= state.colorNext then
+    			state.colorNext = now + 0.5
+    			pcall(hookNativeColorBars)
+    			local raw = savedColorString(currentSkin)
+    			state.colorRaw = raw
+    			-- 优先级：原生调色条当前的颜色 > 游戏保存的颜色 > 皮肤默认色
+    			local c = state.nativeColor or decodeColorString(raw) or state.skinCfg.Color
+    			if c and c ~= state.skinColor then
+    				state.skinColor = c
+    				pcall(paint, state.model, c)
+    			end
+    		end
     	end
 
     	if state.joint then
@@ -9889,9 +10072,9 @@ local function installRodSkinBeauty()
     	local minigame = char:GetAttribute("Minigame") == true
     	local throwing = char:GetAttribute("CDForTheNextThrow") == true
 
-    	-- 气场：进小游戏（摆收竿姿势）时开启，结束后 2.5 秒关
+    	-- 气场：进小游戏时开启，**战斗一结束立刻关**（原来会多留 2.5 秒）
     	if minigame then
-    		state.auraUntil = now + 2.5
+    		state.auraUntil = now
     		setAura(true)
     	elseif now > (state.auraUntil or 0) then
     		setAura(false)
@@ -9899,6 +10082,9 @@ local function installRodSkinBeauty()
 
     	-- 中鱼结算：小游戏结束的瞬间放这套皮肤的粒子爆发 + 音效
     	if state.wasMinigame and not minigame then
+    		-- 战斗结束：立即退出"收竿等待"状态，动作马上切回 Idle（原来要等 2.5 秒）
+    		state.waitUntil = 0
+    		state.lockUntil = 0
     		pcall(function()
     			for _, pe in ipairs(state.emitters or {}) do
     				pcall(function() pe:Emit(18) end)
@@ -10072,6 +10258,11 @@ local function installRodSkinBeauty()
                                 d.Transparency = 1
                             end
                         end
+                        -- 背包/热键栏里的预览也用同一个颜色，保证和手上那把一致
+                        if cfg.ColorSystem == true then
+                            local pc = state.nativeColor or decodeColorString(savedColorString(currentSkin)) or cfg.Color
+                            if pc then pcall(paint, clone, pc) end
+                        end
                         clone.Parent = wm
                         builtThisPass = builtThisPass + 1
                     end
@@ -10170,6 +10361,28 @@ local function installRodSkinBeauty()
         Set = set,
         List = listSkins,
         Info = getConfig,
+        -- 兼容接口：h 0-360，s/v 0-100（不写游戏数据，只刷本地模型）
+        SetColor = function(h, s, v)
+            local c = Color3.fromHSV(
+                math.clamp((tonumber(h) or 0) / 360, 0, 1),
+                math.clamp((tonumber(s) or 100) / 100, 0, 1),
+                math.clamp((tonumber(v) or 100) / 100, 0, 1))
+            state.nativeColor = c
+            if state.model and state.skinCfg then
+                state.skinColor = c
+                pcall(paint, state.model, c)
+            end
+        end,
+        ClearColor = function()
+            state.nativeColor = nil
+            if state.model and state.skinCfg then
+                local c = decodeColorString(savedColorString(currentSkin)) or state.skinCfg.Color
+                if c then
+                    state.skinColor = c
+                    pcall(paint, state.model, c)
+                end
+            end
+        end,
     }
 
     if Config.RodSkinBeauty then Start() end
