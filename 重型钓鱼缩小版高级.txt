@@ -4282,7 +4282,7 @@ end
 createCategoryHeader(tabBoss, "无名章鱼寄生体(隐藏Boss)")
 local octoCard = createCardGroup(tabBoss)
 
-createToggleRow(octoCard, "自动玩小游戏（节奏机器人）", "机器人自动安全打拍子", Config.OctoAutoMinigame, function(v) Config.OctoAutoMinigame = v end)
+createToggleRow(octoCard, "章鱼/乌龟小游戏", "机器人自动安全打拍子", Config.OctoAutoMinigame, function(v) Config.OctoAutoMinigame = v end)
 createSliderRow(octoCard, "节奏命中率（Accuracy %）", "打拍子准确度（92% - 96% 保证账号绝对安全）", 70, 100, Config.RhythmAccuracy or 100, false, "%", function(v)
     Config.RhythmAccuracy = v
 end)
