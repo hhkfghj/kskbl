@@ -1,5 +1,20 @@
 if not game:IsLoaded() then game.Loaded:Wait() end
 
+-- 【崩溃日志·启动打点】每次执行都往 HW_CrashLog.txt 追加一行。
+-- 如果卡密的"心跳"重复执行了脚本，日志里会连续出现多行「启动」，一眼就能看出来。
+do
+    if type(readfile) == "function" and type(writefile) == "function" and type(os) == "table" then
+        local ok, old = pcall(readfile, "HW_CrashLog.txt")
+        local lines = {}
+        if ok and type(old) == "string" then
+            for line in old:gmatch("[^\n]+") do lines[#lines + 1] = line end
+        end
+        lines[#lines + 1] = string.format("===== 启动 %s =====", os.date("%Y-%m-%d %H:%M:%S"))
+        while #lines > 400 do table.remove(lines, 1) end
+        pcall(function() writefile("HW_CrashLog.txt", table.concat(lines, "\n")) end)
+    end
+end
+
 -- 加载完成标记：主 chunk 里有多处 WaitForChild 会让出线程，
 -- 所以「延迟 N 秒再挂钩」并不可靠——很可能正好在加载中途挂钩，
 -- 那会把执行器自己的 namecall 一起套进去，整段脚本直接中断（实测）。
@@ -767,6 +782,112 @@ local function UnloadScript()
 end
 
 if getgenv then getgenv().IdenticalHeavyweightFishingUnload = UnloadScript end
+
+-- ============================================================
+-- 崩溃日志：每 5 秒把现场写进 <执行器工作区>/HW_CrashLog.txt
+-- Delta 的实际路径是 /sdcard/Delta/Workspace/HW_CrashLog.txt
+-- 闪退之后这个文件还在，能看出崩溃前最后几秒的状态。
+-- 同时会把最近 400 行挂在 getgenv().HW_CRASHLOG（在线也能直接读）。
+-- ============================================================
+do
+    local LOG_FILE = "HW_CrashLog.txt"
+    -- 先把上一次运行留下的日志读回来（最多 400 行），再往下追加。
+    -- 否则重进游戏再跑一次脚本时，第一次 flush 就会把上次闪退前的记录整个覆盖掉。
+    local logLines = {}
+    do
+        if type(readfile) == "function" then
+            local okOld, oldTxt = pcall(readfile, LOG_FILE)
+            if okOld and type(oldTxt) == "string" then
+                for line in oldTxt:gmatch("[^\n]+") do logLines[#logLines + 1] = line end
+                while #logLines > 400 do table.remove(logLines, 1) end
+            end
+        end
+    end
+    local function push(line)
+        logLines[#logLines + 1] = line
+        if #logLines > 400 then table.remove(logLines, 1) end
+        if getgenv then getgenv().HW_CRASHLOG = logLines end
+    end
+    local function flush()
+        if type(writefile) ~= "function" then return end
+        pcall(function() writefile(LOG_FILE, table.concat(logLines, "\n")) end)
+    end
+
+    local okSC, SC = pcall(function() return game:GetService("ScriptContext") end)
+    if okSC and SC then
+        pcall(function()
+            SC.Error:Connect(function(msg, trace)
+                push(string.format("[%s] [ERROR] %s | %s", os.date("%H:%M:%S"), tostring(msg):sub(1, 300), tostring(trace):sub(1, 200)))
+                flush()
+            end)
+        end)
+    end
+
+    -- 帧率统计：卡死/掉帧前会先掉帧，这个值比内存更早暴露问题
+    local frameCount = 0
+    do
+        local okRS, RS = pcall(function() return game:GetService("RunService") end)
+        if okRS and RS then
+            table.insert(activeConnections, RS.RenderStepped:Connect(function() frameCount = frameCount + 1 end))
+        end
+    end
+    local lastFrames, lastClock = 0, os.clock()
+
+    task.spawn(function()
+        while isRunning do
+            pcall(function()
+                local ch = LocalPlayer and LocalPlayer.Character
+                local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+                local skins = 0
+                if ch then
+                    for _, c in ipairs(ch:GetChildren()) do
+                        if c.Name == "__RodSkin" then skins = skins + 1 end
+                    end
+                end
+                local key = getgenv and getgenv().SCRIPT_KEY
+                local nowC = os.clock()
+                local fps = (frameCount - lastFrames) / math.max(0.001, nowC - lastClock)
+                lastFrames, lastClock = frameCount, nowC
+                local totalMem = 0
+                pcall(function()
+                    totalMem = game:GetService("Stats"):GetTotalMemoryUsageMb()
+                end)
+                -- 当前鱼竿上装了哪几个技能（Z/X/C/V），空槽会显示 "-"
+                local skillsTxt = "?"
+                pcall(function()
+                    local data = ReplicatedStorage:FindFirstChild("Data")
+                    local me = data and data:FindFirstChild(tostring(LocalPlayer.UserId))
+                    local rodName = me and me:FindFirstChild("FishingRod") and me.FishingRod.Value
+                    local inv = me and me:FindFirstChild("FishingRodInventory")
+                    local rod = inv and rodName and inv:FindFirstChild(rodName)
+                    local sk = rod and rod:FindFirstChild("Skill")
+                    local parts = {}
+                    for _, k in ipairs({"Z", "X", "C", "V"}) do
+                        local v = sk and sk:FindFirstChild(k)
+                        local name = (v and type(v.Value) == "string" and v.Value) or ""
+                        if name == "" then
+                            parts[#parts + 1] = k .. "=-"
+                        else
+                            parts[#parts + 1] = k .. "=" .. string.sub(name, 1, 10)
+                        end
+                    end
+                    skillsTxt = table.concat(parts, ",")
+                end)
+                push(string.format("[%s] inst=%d lua=%.1fMB mem=%.0fMB fps=%.0f conns=%d mini=%s fish=%s hp=%s skins=%d key=%s skills=%s",
+                    os.date("%H:%M:%S"), #game:GetDescendants(), collectgarbage("count") / 1024,
+                    totalMem, fps, #activeConnections,
+                    tostring(ch and ch:GetAttribute("Minigame")),
+                    tostring(LocalPlayer:GetAttribute("FishID")),
+                    hum and math.floor(hum.Health) or "-",
+                    skins, type(key) == "string" and "set" or "nil", skillsTxt))
+            end)
+            flush()
+            task.wait(3)
+        end
+        push("[日志] 脚本已卸载（isRunning=false）")
+        flush()
+    end)
+end
 
 local notifContainer = Instance.new("Frame")
 notifContainer.Name = "Notifications"
@@ -1625,8 +1746,22 @@ do
             local keyCode = Enum.KeyCode[key]
             if keyCode then
                 sent = pcall(function()
+                    -- 先把 Z/X/C/V 全部"抬起来"：上一次的 keyUp 如果丢了（脚本重载/线程被杀/
+                    -- 帧卡顿），游戏会认为这个键一直按着，之后再按就不触发 InputBegan，
+                    -- 表现就是「放了一次技能之后再也放不出来」。
+                    for _, k in ipairs({"Z", "X", "C", "V"}) do
+                        pcall(function()
+                            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode[k], false, game)
+                        end)
+                    end
                     VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
-                    task.delay(0.03, function()
+                    task.delay(0.05, function()
+                        pcall(function()
+                            VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+                        end)
+                    end)
+                    -- 保险：0.3 秒后再补一次抬起
+                    task.delay(0.3, function()
                         pcall(function()
                             VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
                         end)
@@ -1863,6 +1998,22 @@ do
 
         if IsCharacterCastingSkill() then
             return
+        end
+
+        -- 兜底自恢复：连续 4 秒一个技能都没放出去，就重置连招状态并把 Z/X/C/V 全部抬起。
+        -- （游戏里「技能放一次之后再也不能用」多半是按键状态卡住了，这样能自己爬出来）
+        if now - (comboState.lastCastTime or 0) > 4 then
+            if not comboState.stuckResetAt or now - comboState.stuckResetAt > 4 then
+                comboState.stuckResetAt = now
+                comboState.Reset()
+                if VirtualInputManager then
+                    for _, k in ipairs({"Z", "X", "C", "V"}) do
+                        pcall(function()
+                            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode[k], false, game)
+                        end)
+                    end
+                end
+            end
         end
 
         -- 1. 急救优先
@@ -4282,7 +4433,7 @@ end
 createCategoryHeader(tabBoss, "无名章鱼寄生体(隐藏Boss)")
 local octoCard = createCardGroup(tabBoss)
 
-createToggleRow(octoCard, "章鱼/乌龟小游戏", "机器人自动安全打拍子", Config.OctoAutoMinigame, function(v) Config.OctoAutoMinigame = v end)
+createToggleRow(octoCard, "自动玩小游戏（节奏机器人）", "机器人自动安全打拍子", Config.OctoAutoMinigame, function(v) Config.OctoAutoMinigame = v end)
 createSliderRow(octoCard, "节奏命中率（Accuracy %）", "打拍子准确度（92% - 96% 保证账号绝对安全）", 70, 100, Config.RhythmAccuracy or 100, false, "%", function(v)
     Config.RhythmAccuracy = v
 end)
