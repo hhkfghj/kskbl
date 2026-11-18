@@ -36,8 +36,7 @@ local TeleportService = game:GetService("TeleportService")
 local Lighting = game:GetService("Lighting")
 local CoreGui = game:GetService("CoreGui")
 
-local VirtualUser
-pcall(function() VirtualUser = game:GetService("VirtualUser") end)
+--（VirtualUser 已移除：CaptureController/ClickButton2 是高风险调用）
 
 local VirtualInputManager
 pcall(function() VirtualInputManager = game:GetService("VirtualInputManager") end)
@@ -181,104 +180,12 @@ RhythmHumanizer = false, -- 真人模式 (10-35ms 随机反应延迟)
 --   绝不把 nil 留在 namecall 上（那种情况会让整个客户端瞬间卡死）。
 --   状态挂在 getgenv().HW_AnchorNamecall，主 chunk 不新增顶层 local。
 -- ============================================================
-if hookmetamethod and newcclosure then
-    -- 关键：**每次注入都用全新的表**，不要复用 getgenv 里上一份脚本的表。
-    -- 原因：上一份脚本的驱动循环（如果有）还活着，它每一帧都会调「那个旧表的 set(false)」，
-    -- 而如果新旧共用同一张表，新脚本刚装上的钩子会立刻被它拆掉（实测 active 一直是 false）。
-    -- 用新表之后，旧循环只能操作它自己那张表（prev 已经被它的 unload 清空，等于空转）。
-    local prevTable = getgenv and getgenv().HW_AnchorNamecall or nil
-    if prevTable and prevTable.prev then
-        -- 上一份脚本还挂着钩子，先还原，杜绝层层叠加
-        pcall(function() hookmetamethod(game, "__namecall", prevTable.prev) end)
-    end
-    local hwANC = {}
-    if getgenv then getgenv().HW_AnchorNamecall = hwANC end
-    hwANC.prev = nil
-    hwANC.active = false
-
-    local function hwAnchorActive()
-        return isRunning and Config ~= nil and Config.AnchorBar == true
-    end
-
-    local HW_SRC = (debug and debug.info and debug.info(1, "s")) or ""
-    hwANC.set = function(on)
-        on = on and true or false
-        -- 只允许「当前这份脚本」关掉钩子。
-        -- 重复注入时如果上一份脚本的驱动循环还活着（或者别的脚本也操作这个表），
-        -- 它会每隔 0.1 秒 set(false)，把我们的钩子一直拆掉。
-        if not on and HW_SRC ~= "" then
-            local ok, callerSrc = pcall(function() return debug.info(2, "s") end)
-            if ok and callerSrc ~= HW_SRC then return end
-        end
-        if on == hwANC.active then return end
-
-        if on then
-            local fmRemote = Events and Events:FindFirstChild("FishingMinigame")
-            local oldNamecall
-            oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
-                if self == fmRemote then
-                    -- 热路径：只有「self 就是那条 RemoteEvent」时才多做事，其余调用只多一次比较
-                    local ok, method = pcall(getnamecallmethod)
-                    if ok and method == "FireServer" then
-                        local okCaller, fromExploit = pcall(checkcaller)
-                        if okCaller and not fromExploit and hwAnchorActive() then
-                            -- 注意：这里必须直接用外层闭包的 ...（它是 vararg），
-                            -- 不能再套 function() ... end —— 内层不是 vararg 函数，
-                            -- `...` 会直接编译失败「Cannot use '...' outside of a vararg function」。
-                            local args = {...}
-                            if type(args[1]) == "string" and args[1]:find("Out of bar", 1, true) then
-                                return oldNamecall(self, "In bar", unpack(args, 2))
-                            end
-                        end
-                    end
-                end
-                return oldNamecall(self, ...)
-            end))
-
-            -- 拿不到原函数 = 挂钩失败。这时候绝不能继续，否则每次 namecall 都会调到 nil -> 整个客户端卡死。
-            if type(oldNamecall) ~= "function" then
-                hwANC.prev = nil
-                hwANC.active = false
-                return
-            end
-            hwANC.prev = oldNamecall
-            hwANC.active = true
-        else
-            local oldNamecall = hwANC.prev
-            hwANC.prev = nil
-            hwANC.active = false
-            if oldNamecall then
-                pcall(function() hookmetamethod(game, "__namecall", oldNamecall) end)
-            end
-        end
-    end
-
-    -- 只在开关打开时挂一次，之后不再跟着「抛竿 / 收竿」反复挂钩和还原。
-    -- 原来每个钓鱼小游戏都要 hook 一次、结束再还原一次，挂机十分钟就是几十次装卸；
-    -- hookmetamethod 反复装卸在部分执行器上会残留、和别的脚本的钩子互相覆盖，
-    -- 最终表现就是「挂十几分钟后整个客户端卡死」。
-    -- 钩子内部用 hwAnchorActive() 实时判断开关，效果和按需挂钩完全一样。
-    -- 必须等主 chunk 跑完再挂钩！
-    -- Delta 自己的脚本加载流程也在走 namecall，加载途中挂钩会把执行器自己的调用
-    -- 也套进钩子里，直接导致整个 chunk 中断（实测：unload 没设上、界面也不出来）。
-    -- 用 task.delay 起一个独立线程，1 秒后再装钩子，效果一样但不会打断加载。
-    task.spawn(function()
-        -- 等主 chunk 完全跑完（文件末尾会置 HW_LOADED = true），最多等 60 秒
-        for _ = 1, 600 do
-            if not isRunning then return end
-            if getgenv and getgenv().HW_LOADED == true then break end
-            task.wait(0.1)
-        end
-        if not (isRunning and hwAnchorActive()) then return end
-        -- 个别执行器第一次挂钩会静默失败，重试几次
-        for _ = 1, 10 do
-            if hwANC.active then return end
-            pcall(function() hwANC.set(true) end)
-            if hwANC.active then return end
-            task.wait(1)
-        end
-    end)
-end
+-- 【已删除】原先这里是 hookmetamethod(game, "__namecall", ...)，用来把钓鱼小游戏里的
+-- "Out of bar" 判定改写成 "In bar"（锚定条功能）。
+-- 这是整个脚本里风险最高的调用：挂上一段时间后，多台设备都出现过客户端原生崩溃
+-- （SIGSEGV / libzstd 无征兆退出）。按要求整段移除，不再安装任何 __namecall 钩子。
+--
+-- 锚定条本身保留：下面用 RenderStepped 把 Bar 固定在屏幕中心（纯 Lua，不碰执行器 API）。
 
 local PROFILE_DIR = "Identical/HeavyweightFishing"
 
@@ -8080,20 +7987,6 @@ do
                 if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
             end)
         end,
-        -- 模拟一次右键（优先 VirtualUser，其次 Humanoid:ChangeState）
-        SimulateRightClick = function()
-            if VirtualUser then
-                pcall(function()
-                    VirtualUser:CaptureController()
-                    VirtualUser:ClickButton2(Vector2.new(0, 0))
-                end)
-                return
-            end
-            pcall(function()
-                local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-                if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
-            end)
-        end,
     }
 
     table.insert(activeConnections, UserInputService.InputBegan:Connect(function(_, gpe)
@@ -8116,18 +8009,30 @@ end
 local lastHPText        = nil
 local lastHPChangeTime  = tick()
 local hpStuckFired      = false
+local hpTryCount        = 0    -- 这一轮卡死已经尝试恢复几次
+local hpLastTryAt       = 0
 
 table.insert(activeConnections, task.spawn(function()
     while isRunning do
         task.wait(1)
         if not isRunning then break end
 
-        -- ① 防挂机：空闲 ≥900s 模拟一次右键 + 空格（与普通版一致）
-        if Config.AntiAFK and AFKGuard and (tick() - AFKGuard.last >= 900) then
-            AFKGuard.SimulateRightClick()
-            task.wait(0.2)
-            AFKGuard.SimulateSpaceKey()
+        -- ① 防挂机（安全版）：
+        --    不再用 VirtualUser:CaptureController / ClickButton2（这两个是最容易
+        --    把客户端搞崩的调用），也把间隔从 15 分钟缩到 5 分钟；
+        --    只发一次空格，足够让 Roblox 认为你还在操作。
+        if Config.AntiAFK and AFKGuard and (tick() - AFKGuard.last >= 300) then
             AFKGuard.last = tick()
+            if VirtualInputManager then
+                pcall(function()
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+                    task.delay(0.05, function()
+                        pcall(function()
+                            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+                        end)
+                    end)
+                end)
+            end
         end
 
         -- HP 进度条卡死检测
@@ -8149,27 +8054,52 @@ table.insert(activeConnections, task.spawn(function()
                         lastHPText       = text
                         lastHPChangeTime = tick()
                     elseif text ~= lastHPText then
-                        -- 数字变化了 → 刷新计时
+                        -- 数字变化了 → 刷新计时，恢复计数清零
                         lastHPText       = text
                         lastHPChangeTime = tick()
                         hpStuckFired     = false
-                    elseif (tick() - lastHPChangeTime >= 60) and not hpStuckFired then
-                        -- 60 秒没变 → 触发解锁
+                        hpTryCount       = 0
+                        hpLastTryAt      = 0
+                    elseif (tick() - lastHPChangeTime >= 60)
+                        and (tick() - hpLastTryAt >= 60) then
+                        -- 60 秒没变化 → 收竿/重装热键栏来解锁
+                        -- 不限次数：只要 HP 数字一直不变，就每 60 秒重试一次；
+                        -- 数字一变就清零，下次卡住还能继续救
                         hpStuckFired = true
-                        local toggleEv = Events and Events:FindFirstChild("ToggleHotbar")
-                        if toggleEv then
-                            -- 第一次
-                            pcall(function() toggleEv:InvokeServer("1", nil) end)
-                            task.wait(0.15)
-                            -- 第二次
-                            pcall(function() toggleEv:InvokeServer("1", nil) end)
-                            ShowNotification("反挂机", "HP 进度条 1 分钟未变化，已触发热键切换", "WARN", 3)
+                        hpTryCount   = hpTryCount + 1
+                        hpLastTryAt  = tick()
+                        local pressed = false
+                        if VirtualInputManager then
+                            -- 不再用 ToggleHotbar:InvokeServer（RemoteFunction 连点风险高），
+                            -- 改成模拟按一下热键 1：游戏自己的按键处理会去切换手持物，
+                            -- 效果一样，但走的是玩家输入通道，和真人操作没有区别。
+                            pressed = pcall(function()
+                                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.One, false, game)
+                                task.delay(0.05, function()
+                                    pcall(function()
+                                        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.One, false, game)
+                                    end)
+                                end)
+                            end)
+                        end
+                        ShowNotification("反挂机",
+                            string.format("HP 进度条 1 分钟未变化，已按热键 1 重装（第 %d 次）%s",
+                                hpTryCount, pressed and "" or "（按键发送失败）"),
+                            "WARN", 3)
+                        if getgenv then
+                            getgenv().HW_HP_STUCK = os.time()
+                            local lg = getgenv().HW_CRASHLOG
+                            if type(lg) == "table" then
+                                lg[#lg + 1] = string.format("[%s] [HP] 卡住 60s，第 %d 次尝试重新装备", os.date("%H:%M:%S"), hpTryCount)
+                            end
                         end
                     end
                 else
                     -- HP 元素不存在（没在钓鱼/未打开界面）→ 重置状态，等待下次出现
                     lastHPText   = nil
                     hpStuckFired = false
+                    hpTryCount   = 0
+                    hpLastTryAt  = 0
                 end
             end)
         end
