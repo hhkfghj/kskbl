@@ -1,19 +1,69 @@
 if not game:IsLoaded() then game.Loaded:Wait() end
 
--- 【崩溃日志·启动打点】每次执行都往 HW_CrashLog.txt 追加一行。
--- 如果卡密的"心跳"重复执行了脚本，日志里会连续出现多行「启动」，一眼就能看出来。
-do
-    if type(readfile) == "function" and type(writefile) == "function" and type(os) == "table" then
-        local ok, old = pcall(readfile, "HW_CrashLog.txt")
-        local lines = {}
-        if ok and type(old) == "string" then
-            for line in old:gmatch("[^\n]+") do lines[#lines + 1] = line end
+-- ============================================================
+-- 📁 统一存档目录（日志 / 配置 / 美化固定条）
+--   显示路径（UI 上写这一行）：/Delta/Workspace/CK HUB/重型钓鱼/
+--                               /Delta/Workspace/CK HUB/重型钓鱼/美化固定条/
+--   实际路径：Delta 工作区相对路径 = CK HUB/重型钓鱼
+--     （手机里的真实位置 /sdcard/Delta/Workspace/CK HUB/重型钓鱼，同一个文件夹）
+--   注意：Delta 的文件 API 只认「工作区相对路径」（工作区 = Delta/Workspace），
+--   传绝对路径会 failed to read file。所以这里先探测：能用绝对就用绝对，
+--   不能用就退回相对路径 —— 两者指向同一个文件夹。
+-- ============================================================
+getgenv().HW_DISPLAY_BASE = "/Delta/Workspace/CK HUB/重型钓鱼"
+getgenv().HW_BAR_PHOTO_DISPLAY = getgenv().HW_DISPLAY_BASE .. "/美化固定条/"
+getgenv().HW_BASE_DIR = (function()
+    -- Android（Delta）：优先 /storage 绝对路径；PC（Xeno / Solara / Wave）：退工作区相对路径
+    local absList = {
+        "/storage/emulated/0/Delta/Workspace/CK HUB/重型钓鱼",
+        "/sdcard/Delta/Workspace/CK HUB/重型钓鱼",
+        "/mnt/sdcard/Delta/Workspace/CK HUB/重型钓鱼",
+    }
+    local rel = "CK HUB/重型钓鱼"
+    if type(isfolder) == "function" then
+        for _, cand in ipairs(absList) do
+            local ok, has = pcall(isfolder, cand)
+            if ok and has then return cand end
         end
-        lines[#lines + 1] = string.format("===== 启动 %s =====", os.date("%Y-%m-%d %H:%M:%S"))
-        while #lines > 400 do table.remove(lines, 1) end
-        pcall(function() writefile("HW_CrashLog.txt", table.concat(lines, "\n")) end)
     end
+    local function ensureDir(dir)
+        if type(makefolder) ~= "function" then return end
+        local acc = nil
+        local isAbs = dir:sub(1, 1) == "/"
+        for seg in dir:gmatch("[^/]+") do
+            if acc == nil then acc = isAbs and ("/" .. seg) or seg
+            else acc = acc .. "/" .. seg end
+            local exists = false
+            if type(isfolder) == "function" then
+                local ok0, e0 = pcall(isfolder, acc)
+                exists = (ok0 and e0) and true or false
+            elseif type(isfile) == "function" then
+                local ok0, e0 = pcall(isfile, acc)
+                exists = (ok0 and e0) and true or false
+            end
+            if not exists then pcall(makefolder, acc) end
+        end
+    end
+    ensureDir(rel)
+    ensureDir(rel .. "/配置")
+    ensureDir(rel .. "/美化固定条")
+    if type(writefile) == "function" then
+        local probe = rel .. "/.hw_write_probe"
+        local okW = pcall(writefile, probe, "1")
+        if okW and type(delfile) == "function" then pcall(delfile, probe) end
+    end
+    return rel
+end)()
+HW_BASE = getgenv().HW_BASE_DIR
+HW_CRASHLOG_FILE = HW_BASE .. "/HW_CrashLog.txt" -- 实时日志已关闭，这个常量只留给别的模块拼路径用
+HW_NPCHOP_FILE = HW_BASE .. "/HeavyweightFishing_NPCHop.json"
+HW_WEATHER_FILE = HW_BASE .. "/HeavyweightFishing_WeatherHop.json"
+HW_AUTOSTART_FILE = HW_BASE .. "/fourbeasts_autostart.txt"
+
+function HWFile(name)
+    return HW_BASE .. "/" .. tostring(name)
 end
+
 
 -- 加载完成标记：主 chunk 里有多处 WaitForChild 会让出线程，
 -- 所以「延迟 N 秒再挂钩」并不可靠——很可能正好在加载中途挂钩，
@@ -81,7 +131,13 @@ RhythmHumanizer = false, -- 真人模式 (10-35ms 随机反应延迟)
     BossDifficulty = "简单", -- Boss难度(简单/困难)  
     SelectedBoss = "Enzo", -- 选择的Boss
     RodSkinBeauty = false, -- 皮肤美化（鱼竿皮肤实体化）
+    RodSkinFX = false,     -- 皮肤常驻粒子（皮肤自带的闪电/星光，会糊住竿子，默认关）
+    RodSkinAura = false,   -- 中鱼气场（小游戏期间环绕角色的粒子环，默认关）
+    ShopShowOwned = false, -- 商店通行证显示「已拥有」（默认关，点「一键全物品，全通行证」才开）
     RodSkinPick = "Starlight Rod", -- 选中的皮肤
+    BarSkin = true, -- 美化固定条（只把那条游走的线换成照片）
+    BarSkinPick = "", -- 固定条照片：写照片文件名；空 = 自动用第一张
+    BarSkinAssets = {}, -- PC 执行器没有 listfiles 时用：{"rbxassetid://123", ...}
     
     AutoServerHopGod = false, -- 自动跳服务器找神灵
     AutoServerHopMaoshan = false, -- 自动跳服务器找茅山
@@ -187,14 +243,12 @@ RhythmHumanizer = false, -- 真人模式 (10-35ms 随机反应延迟)
 --
 -- 锚定条本身保留：下面用 RenderStepped 把 Bar 固定在屏幕中心（纯 Lua，不碰执行器 API）。
 
-local PROFILE_DIR = "Identical/HeavyweightFishing"
+local PROFILE_DIR = HW_BASE .. "/配置"
 
 local function EnsureProfileDir()
-    if makefolder then
-        pcall(function()
-            if not isfolder("Identical") then makefolder("Identical") end
-            if not isfolder(PROFILE_DIR) then makefolder(PROFILE_DIR) end
-        end)
+    if type(makefolder) == "function" and type(isfolder) == "function" then
+        local ok, exists = pcall(isfolder, PROFILE_DIR)
+        if not (ok and exists) then pcall(makefolder, PROFILE_DIR) end
     end
 end
 
@@ -211,7 +265,14 @@ local function SaveProfile(name)
     end
     local ok, encoded = pcall(function() return HttpService:JSONEncode(data) end)
     if ok and writefile then
-        pcall(function() writefile(path, encoded) end)
+        local wrote = pcall(function() writefile(path, encoded) end)
+        if wrote then return true end
+    end
+    -- 执行器没有文件写权限（PC 端 Xeno 之类）：落内存，本次会话内读得回来
+    if ok then
+        local mem = getgenv().HW_MEM_PROFILES
+        if type(mem) ~= "table" then mem = {}; getgenv().HW_MEM_PROFILES = mem end
+        mem[name or Config.ActiveProfile] = encoded
         return true
     end
     return false
@@ -219,7 +280,7 @@ end
 
 local function LoadProfile(name)
     local path = PROFILE_DIR .. "/" .. (name or Config.ActiveProfile) .. ".json"
-    -- 伪装字段默认值是 nil（表示“不伪装”）；下面的回填条件原本只放行默认值非 nil 的键，
+    -- 伪装字段默认值是 nil（表示“不伪装”）；下面只放行默认值非 nil 的键，
     -- 这里对伪装字段单独放行，确保重新注入脚本后 TextBox 与伪装状态能正确回填。
     local nilableFakeKeys = {
         FakeExpBonus = true,
@@ -230,23 +291,30 @@ local function LoadProfile(name)
         FakeTicket = true,
         FakeCash = true,
     }
+    local profileKey = name or Config.ActiveProfile
+    local content = nil
     if readfile then
-        local ok, content = pcall(function() return readfile(path) end)
-        if ok and content and #content > 0 then
-            local decOk, decoded = pcall(function() return HttpService:JSONDecode(content) end)
-            if decOk and type(decoded) == "table" then
-                for k, v in pairs(decoded) do
-                    if type(v) == "table" and v.__enum then
-                        local enumType, enumName = v.__enum:match("Enum%.(%w+)%.(%w+)")
-                        if enumType and enumName and Enum[enumType] and Enum[enumType][enumName] then
-                            Config[k] = Enum[enumType][enumName]
-                        end
-                    elseif Config[k] ~= nil or nilableFakeKeys[k] then
-                        Config[k] = v
+        local okF, cF = pcall(function() return readfile(path) end)
+        if okF and cF and #cF > 0 then content = cF end
+    end
+    if not content then
+        local mem = getgenv().HW_MEM_PROFILES
+        if type(mem) == "table" and mem[profileKey] then content = mem[profileKey] end
+    end
+    if content and #content > 0 then
+        local decOk, decoded = pcall(function() return HttpService:JSONDecode(content) end)
+        if decOk and type(decoded) == "table" then
+            for k, v in pairs(decoded) do
+                if type(v) == "table" and v.__enum then
+                    local enumType, enumName = v.__enum:match("Enum%.(%w+)%.(%w+)")
+                    if enumType and enumName and Enum[enumType] and Enum[enumType][enumName] then
+                        Config[k] = Enum[enumType][enumName]
                     end
+                elseif Config[k] ~= nil or nilableFakeKeys[k] then
+                    Config[k] = v
                 end
-                return true
             end
+            return true
         end
     end
     return false
@@ -265,7 +333,7 @@ do
         getgenv().AutoFourBeastsOnJoin = nil
     end
     if readfile then
-        local ok, flag = pcall(readfile, "fourbeasts_autostart.txt")
+        local ok, flag = pcall(readfile, HW_AUTOSTART_FILE)
         if ok and flag == "1" then
             Config.AutoFourBeastsFarm = true
         end
@@ -296,8 +364,8 @@ HopState = {
 
 do
     -- 刚跳到新服务器：恢复“继续寻找 NPC”的状态（与源码 HeavyweightFishing_NPCHop.json 一致）
-    if isfile and readfile and isfile("HeavyweightFishing_NPCHop.json") then
-        local ok, content = pcall(function() return readfile("HeavyweightFishing_NPCHop.json") end)
+    if isfile and readfile and isfile(HW_NPCHOP_FILE) then
+        local ok, content = pcall(function() return readfile(HW_NPCHOP_FILE) end)
         if ok and content and #content > 0 then
             local decOk, hopData = pcall(function() return HttpService:JSONDecode(content) end)
             if decOk and type(hopData) == "table" and hopData.Active then
@@ -329,8 +397,8 @@ WeatherHop = {
 }
 
 do
-    if isfile and readfile and isfile("HeavyweightFishing_WeatherHop.json") then
-        local ok, content = pcall(function() return readfile("HeavyweightFishing_WeatherHop.json") end)
+    if isfile and readfile and isfile(HW_WEATHER_FILE) then
+        local ok, content = pcall(function() return readfile(HW_WEATHER_FILE) end)
         if ok and content and #content > 0 then
             local decOk, hopData = pcall(function() return HttpService:JSONDecode(content) end)
             if decOk and type(hopData) == "table" and hopData.Active then
@@ -659,6 +727,11 @@ local function UnloadScript()
         local eng = getgenv and getgenv() and getgenv().HW_RodSkin
         if eng and type(eng.Enable) == "function" then eng.Enable(false) end
     end)
+    -- 固定条美化也要收干净：重注入不留残影
+    pcall(function()
+        local bs = getgenv and getgenv() and getgenv().HW_BarSkin
+        if bs and type(bs.Cleanup) == "function" then bs.Cleanup() end
+    end)
     for _, conn in ipairs(activeConnections) do pcall(function() conn:Disconnect() end) end
     table.clear(activeConnections)
     
@@ -690,111 +763,6 @@ end
 
 if getgenv then getgenv().IdenticalHeavyweightFishingUnload = UnloadScript end
 
--- ============================================================
--- 崩溃日志：每 5 秒把现场写进 <执行器工作区>/HW_CrashLog.txt
--- Delta 的实际路径是 /sdcard/Delta/Workspace/HW_CrashLog.txt
--- 闪退之后这个文件还在，能看出崩溃前最后几秒的状态。
--- 同时会把最近 400 行挂在 getgenv().HW_CRASHLOG（在线也能直接读）。
--- ============================================================
-do
-    local LOG_FILE = "HW_CrashLog.txt"
-    -- 先把上一次运行留下的日志读回来（最多 400 行），再往下追加。
-    -- 否则重进游戏再跑一次脚本时，第一次 flush 就会把上次闪退前的记录整个覆盖掉。
-    local logLines = {}
-    do
-        if type(readfile) == "function" then
-            local okOld, oldTxt = pcall(readfile, LOG_FILE)
-            if okOld and type(oldTxt) == "string" then
-                for line in oldTxt:gmatch("[^\n]+") do logLines[#logLines + 1] = line end
-                while #logLines > 400 do table.remove(logLines, 1) end
-            end
-        end
-    end
-    local function push(line)
-        logLines[#logLines + 1] = line
-        if #logLines > 400 then table.remove(logLines, 1) end
-        if getgenv then getgenv().HW_CRASHLOG = logLines end
-    end
-    local function flush()
-        if type(writefile) ~= "function" then return end
-        pcall(function() writefile(LOG_FILE, table.concat(logLines, "\n")) end)
-    end
-
-    local okSC, SC = pcall(function() return game:GetService("ScriptContext") end)
-    if okSC and SC then
-        pcall(function()
-            SC.Error:Connect(function(msg, trace)
-                push(string.format("[%s] [ERROR] %s | %s", os.date("%H:%M:%S"), tostring(msg):sub(1, 300), tostring(trace):sub(1, 200)))
-                flush()
-            end)
-        end)
-    end
-
-    -- 帧率统计：卡死/掉帧前会先掉帧，这个值比内存更早暴露问题
-    local frameCount = 0
-    do
-        local okRS, RS = pcall(function() return game:GetService("RunService") end)
-        if okRS and RS then
-            table.insert(activeConnections, RS.RenderStepped:Connect(function() frameCount = frameCount + 1 end))
-        end
-    end
-    local lastFrames, lastClock = 0, os.clock()
-
-    task.spawn(function()
-        while isRunning do
-            pcall(function()
-                local ch = LocalPlayer and LocalPlayer.Character
-                local hum = ch and ch:FindFirstChildOfClass("Humanoid")
-                local skins = 0
-                if ch then
-                    for _, c in ipairs(ch:GetChildren()) do
-                        if c.Name == "__RodSkin" then skins = skins + 1 end
-                    end
-                end
-                local key = getgenv and getgenv().SCRIPT_KEY
-                local nowC = os.clock()
-                local fps = (frameCount - lastFrames) / math.max(0.001, nowC - lastClock)
-                lastFrames, lastClock = frameCount, nowC
-                local totalMem = 0
-                pcall(function()
-                    totalMem = game:GetService("Stats"):GetTotalMemoryUsageMb()
-                end)
-                -- 当前鱼竿上装了哪几个技能（Z/X/C/V），空槽会显示 "-"
-                local skillsTxt = "?"
-                pcall(function()
-                    local data = ReplicatedStorage:FindFirstChild("Data")
-                    local me = data and data:FindFirstChild(tostring(LocalPlayer.UserId))
-                    local rodName = me and me:FindFirstChild("FishingRod") and me.FishingRod.Value
-                    local inv = me and me:FindFirstChild("FishingRodInventory")
-                    local rod = inv and rodName and inv:FindFirstChild(rodName)
-                    local sk = rod and rod:FindFirstChild("Skill")
-                    local parts = {}
-                    for _, k in ipairs({"Z", "X", "C", "V"}) do
-                        local v = sk and sk:FindFirstChild(k)
-                        local name = (v and type(v.Value) == "string" and v.Value) or ""
-                        if name == "" then
-                            parts[#parts + 1] = k .. "=-"
-                        else
-                            parts[#parts + 1] = k .. "=" .. string.sub(name, 1, 10)
-                        end
-                    end
-                    skillsTxt = table.concat(parts, ",")
-                end)
-                push(string.format("[%s] inst=%d lua=%.1fMB mem=%.0fMB fps=%.0f conns=%d mini=%s fish=%s hp=%s skins=%d key=%s skills=%s",
-                    os.date("%H:%M:%S"), #game:GetDescendants(), collectgarbage("count") / 1024,
-                    totalMem, fps, #activeConnections,
-                    tostring(ch and ch:GetAttribute("Minigame")),
-                    tostring(LocalPlayer:GetAttribute("FishID")),
-                    hum and math.floor(hum.Health) or "-",
-                    skins, type(key) == "string" and "set" or "nil", skillsTxt))
-            end)
-            flush()
-            task.wait(3)
-        end
-        push("[日志] 脚本已卸载（isRunning=false）")
-        flush()
-    end)
-end
 
 local notifContainer = Instance.new("Frame")
 notifContainer.Name = "Notifications"
@@ -1459,6 +1427,712 @@ local function createInputRow(parent, labelText, descText, initialVal, callback,
     }
 end
 
+
+-- ============================================================
+-- 🎨 固定条线美化（v20 · 只替换那条线）
+--   目标实例：PlayerGui.MainGui.Fishing.BarFrame.Bar
+--   · 底条 BarFrame、上方鱼头血条 ProgressionBar、判定与数值：全部保持原样
+--   · 只把游走的那条线换成照片，照片按绝对坐标每帧贴合
+--   · 面板只剩：开关 + 照片网格（其余设置项已全部删除）
+--   照片目录：/Delta/Workspace/CK HUB/重型钓鱼/美化固定条/
+-- ============================================================
+getgenv().HW_Colors = Colors
+getgenv().HW_UI_M = M
+getgenv().HW_Notify = function(...) pcall(ShowNotification, ...) end
+
+do
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local TweenService = game:GetService("TweenService")
+    local LP = Players.LocalPlayer
+    local G = getgenv and getgenv() or _G
+
+    local old = G.HW_BarSkin
+    if old and type(old.Cleanup) == "function" then pcall(old.Cleanup) end
+
+    local BASE = tostring(G.HW_BASE_DIR or "CK HUB/重型钓鱼")
+    local ROOT_DIR = BASE .. "/美化固定条"
+    local SHOW_DIR = tostring(G.HW_BAR_PHOTO_DISPLAY or "/Delta/Workspace/CK HUB/重型钓鱼/美化固定条/")
+    if SHOW_DIR:sub(-1) ~= "/" then SHOW_DIR = SHOW_DIR .. "/" end
+
+    local DIR_CANDIDATES = {
+        ROOT_DIR,
+        "/sdcard/Delta/Workspace/CK HUB/重型钓鱼/美化固定条",
+        "/storage/emulated/0/Delta/Workspace/CK HUB/重型钓鱼/美化固定条",
+        "/Delta/Workspace/CK HUB/重型钓鱼/美化固定条",
+        "/mnt/sdcard/Delta/Workspace/CK HUB/重型钓鱼/美化固定条",
+    }
+
+    local C = G.HW_Colors or {}
+    local PURPLE_L = C.PurplePrimary or Color3.fromRGB(216, 160, 255)
+    local PINK = Color3.fromRGB(244, 114, 182)
+    local CYAN = Color3.fromRGB(34, 211, 238)
+    local DARK = C.InputBg or Color3.fromRGB(18, 14, 26)
+    local TXT = C.TextWhite or Color3.fromRGB(245, 243, 255)
+    local TXT_SUB = C.TextSubtle or Color3.fromRGB(168, 150, 200)
+    local CTRL = C.ControlBg or Color3.fromRGB(28, 20, 44)
+    local BORDER = C.BorderSubtle or Color3.fromRGB(45, 33, 66)
+
+    local UM = G.HW_UI_M or {}
+    local function num(v, d) local n = tonumber(v); if n then return n end return d end
+    local UI = {
+        catH   = num(UM.catH, 18),
+        catF   = num(UM.catF, 9),
+        rowH   = num(UM.rowH, 34),
+        titleF = num(UM.rowTitleF, 10),
+        titleH = num(UM.rowTitleH, 14),
+        descF  = num(UM.rowDescF, 8),
+        descH  = num(UM.rowDescH, 12),
+        pad    = num(UM.rowPadLR, 8),
+        tglW   = num(UM.tglW, 32),
+        tglH   = num(UM.tglH, 16),
+        knob   = num(UM.knobS, 12),
+    }
+
+    local MAX_PHOTOS = 80
+    local IMG_EXT = { png = true, jpg = true, jpeg = true, bmp = true, tga = true }
+    local CURSOR_WORDS = { "光标", "cursor", "刃", "指针", "blade", "线" }
+
+    local BarSkin = {
+        Photos = {},
+        Pick = "all", -- 先占位，BuildUI 会立刻改成第一张照片的文件名
+        Enabled = false,
+        Interval = 5,
+        Source = "none",
+    }
+
+    -- ---------------- 扫照片 ----------------
+    local function listDir(dir)
+        if type(listfiles) ~= "function" then return nil end
+        local ok, list = pcall(listfiles, dir)
+        if not ok or type(list) ~= "table" then return nil end
+        return list
+    end
+
+    local function isCursorName(name)
+        local low = string.lower(name)
+        for _, w in ipairs(CURSOR_WORDS) do
+            if string.find(low, string.lower(w), 1, true) then return true end
+        end
+        return false
+    end
+
+    local function pathForms(full, name)
+        local forms, seen = {}, {}
+        local function push(p)
+            if type(p) == "string" and #p > 0 and not seen[p] then
+                seen[p] = true
+                forms[#forms + 1] = p
+            end
+        end
+        full = tostring(full or "")
+        name = tostring(name or (full:match("([^/\\]+)$") or ""))
+        push(full)
+        local tail = full:match("CK HUB/重型钓鱼/美化固定条/.*$")
+        if tail then push(tail) end
+        local rel = tail or ("CK HUB/重型钓鱼/美化固定条/" .. name)
+        push(rel)
+        local relNoLead = rel:gsub("^/+", "")
+        push("/sdcard/Delta/Workspace/" .. relNoLead)
+        push("/storage/emulated/0/Delta/Workspace/" .. relNoLead)
+        push("/Delta/Workspace/" .. relNoLead)
+        push("/mnt/sdcard/Delta/Workspace/" .. relNoLead)
+        return forms
+    end
+
+    local function makeAsset(full, name)
+        if type(getcustomasset) ~= "function" then return nil end
+        for _, p in ipairs(pathForms(full, name)) do
+            local ok, asset = pcall(getcustomasset, p)
+            if ok and type(asset) == "string" and #asset > 0 then return asset end
+        end
+        return nil
+    end
+
+    function BarSkin.Scan()
+        local photos, seen = {}, {}
+        -- PC 执行器（Xeno / Solara / Wave）通常没有 listfiles / getcustomasset：
+        -- 改吃 Config.BarSkinAssets 里的 rbxassetid 列表
+        if type(listfiles) ~= "function" or type(getcustomasset) ~= "function" then
+            local list = (Config and Config.BarSkinAssets) or {}
+            if type(list) == "table" then
+                for i, id in ipairs(list) do
+                    local s = tostring(id)
+                    if #s > 0 then
+                        local asset = s:find("rbxassetid://") and s or ("rbxassetid://" .. s)
+                        photos[#photos + 1] = { name = "图片" .. i, path = s, asset = asset, cursor = false }
+                    end
+                end
+            end
+            BarSkin.Photos = photos
+            BarSkin.Source = (#photos > 0) and "config" or "none"
+            BarSkin._idx = 1
+            return #photos, 0
+        end
+        local scannedDirs = 0
+        for _, dir in ipairs(DIR_CANDIDATES) do
+            local list = listDir(dir)
+            if list then
+                scannedDirs = scannedDirs + 1
+                table.sort(list)
+                for _, full in ipairs(list) do
+                    full = tostring(full)
+                    local name = full:match("([^/\\]+)$") or full
+                    local ext = string.lower(name):match("%.([%w]+)$")
+                    local key = string.lower(name)
+                    if ext and IMG_EXT[ext] and not seen[key] and #photos < MAX_PHOTOS then
+                        local asset = makeAsset(full, name)
+                        if asset then
+                            seen[key] = true
+                            photos[#photos + 1] = {
+                                name = name, path = full, asset = asset, cursor = isCursorName(name),
+                            }
+                        end
+                    end
+                end
+            end
+        end
+        table.sort(photos, function(a, b)
+            if a.cursor ~= b.cursor then return a.cursor end
+            return a.name < b.name
+        end)
+        BarSkin.Photos = photos
+        BarSkin.Source = (#photos > 0) and "user" or "none"
+        BarSkin._idx = 1
+        return #photos, scannedDirs
+    end
+
+    local function resolveCurrent()
+        if #BarSkin.Photos == 0 then return nil end
+        local pick = BarSkin.Pick
+        if type(pick) == "number" then
+            return BarSkin.Photos[math.clamp(pick, 1, #BarSkin.Photos)]
+        end
+        local s = tostring(pick or "all")
+        if s ~= "all" then
+            for _, p in ipairs(BarSkin.Photos) do
+                if p.name == s or p.path == s then return p end
+            end
+        end
+        return BarSkin.Photos[math.clamp(BarSkin._idx or 1, 1, #BarSkin.Photos)]
+    end
+
+    -- ---------------- 覆盖层：照片直接挂在 Bar 下面 ----------------
+    -- 老做法是独立 ScreenGui，每帧读 bar.AbsolutePosition 再算 offset 去贴。
+    -- Roblox 的 UDim2.Offset 是整数、AbsolutePosition 还有 1 帧延迟，
+    -- 线一开始来回扫，照片就掉队（实测 err 2~4px，扫得快时到 20+）。
+    -- 现在把照片做成 Bar 的子级：父级每帧怎么动，子级自动跟着，零延迟零取整。
+    local photoImg
+    local hidden = setmetatable({}, { __mode = "k" })
+    local nextSwap = 0
+    local lastDip = 0
+
+    local function mk(class, props, parent)
+        local o = Instance.new(class)
+        for k, v in pairs(props or {}) do o[k] = v end
+        if parent then o.Parent = parent end
+        return o
+    end
+
+    local function removePhoto()
+        if photoImg then pcall(function() photoImg:Destroy() end) end
+        photoImg = nil
+    end
+
+    local function hideProp(inst, prop, hideValue)
+        if not inst then return end
+        local rec = hidden[inst]
+        if not rec then
+            rec = {}
+            hidden[inst] = rec
+        end
+        if rec[prop] == nil then
+            local ok, v = pcall(function() return inst[prop] end)
+            if not ok then return end
+            rec[prop] = { value = v }
+        end
+        pcall(function() inst[prop] = hideValue end)
+    end
+
+    local function restoreLine()
+        for inst, rec in pairs(hidden) do
+            if inst and inst.Parent then
+                for prop, data in pairs(rec) do
+                    pcall(function() inst[prop] = data.value end)
+                end
+            end
+        end
+        table.clear(hidden)
+        BarSkin._cleaned = false
+    end
+
+    -- 只抹掉原线的「视觉」：Visible 必须保持 true，否则子级照片跟着一起消失
+    local function muteBar(bar)
+        if not bar or not bar.Parent then return end
+        hideProp(bar, "BackgroundTransparency", 1)
+        hideProp(bar, "ImageTransparency", 1)
+        pcall(function() bar.ClipsDescendants = false end)
+        for _, d in ipairs(bar:GetChildren()) do
+            if d == photoImg then
+                -- 自己的照片不动
+            elseif d:IsA("UIStroke") then
+                hideProp(d, "Transparency", 1)
+            elseif d:IsA("UIGradient") then
+                hideProp(d, "Enabled", false)
+            elseif d:IsA("GuiObject") then
+                hideProp(d, "Visible", false)
+                hideProp(d, "BackgroundTransparency", 1)
+            end
+        end
+    end
+
+    local function ensurePhoto(bar)
+        if photoImg and photoImg.Parent == bar then return end
+        removePhoto()
+        local bw = math.clamp(bar.AbsoluteSize.X * 3.4, 14, 30)
+        local bh = math.clamp(bar.AbsoluteSize.Y * 3.4, 26, 60)
+        local z = (tonumber(bar.ZIndex) or 1) + 5
+        photoImg = mk("ImageLabel", {
+            Name = "HWBarPhoto",
+            BackgroundTransparency = 1,
+            Size = UDim2.fromOffset(bw, bh),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            Position = UDim2.fromScale(0.5, 0.5),
+            Image = "",
+            ScaleType = Enum.ScaleType.Crop,
+            Visible = true,
+            ZIndex = z,
+            ClipsDescendants = false,
+        }, bar)
+        mk("UICorner", { CornerRadius = UDim.new(0, 3) }, photoImg)
+    end
+
+    -- 真实结构：BarFrame → Bar(4.6x9.5 竖线)。名字换了就按「又窄又竖」找
+    local function findBar(fishing)
+        local barFrame = fishing:FindFirstChild("BarFrame")
+        if not barFrame then
+            for _, n in ipairs({ "FixedBar", "FixedBarFrame", "BarRoot", "AnchorBar", "BarHolder" }) do
+                local f = fishing:FindFirstChild(n)
+                if f and f:IsA("GuiObject") then barFrame = f; break end
+            end
+        end
+        if not barFrame then return nil end
+        local bar = barFrame:FindFirstChild("Bar")
+            or barFrame:FindFirstChild("Marker")
+            or barFrame:FindFirstChild("Pointer")
+            or barFrame:FindFirstChild("Cursor")
+        if not bar then
+            local best, score = nil, -1
+            for _, d in ipairs(barFrame:GetDescendants()) do
+                if d:IsA("GuiObject") and d ~= barFrame and d.Visible then
+                    local okS, s = pcall(function() return d.AbsoluteSize end)
+                    if okS and s and s.X > 0 and s.X <= 14 and s.Y >= s.X then
+                        local sc = s.Y / math.max(s.X, 1)
+                        if sc > score then best, score = d, sc end
+                    end
+                end
+            end
+            bar = best
+        end
+        return barFrame, bar
+    end
+
+    local function swapPhoto()
+        local photo = resolveCurrent()
+        if not photoImg then return end
+        if not photo then
+            photoImg.Visible = false
+            return
+        end
+        photoImg.Image = photo.asset
+        photoImg.Visible = true
+        photoImg.ImageTransparency = 0.55
+        TweenService:Create(photoImg, TweenInfo.new(0.22), { ImageTransparency = 0 }):Play()
+    end
+
+    -- ---------------- 每帧：只维护挂载关系和尺寸，位置交给父级 ----------------
+    local function update()
+        if not BarSkin.Enabled then
+            removePhoto()
+            if next(hidden) then restoreLine() end
+            return
+        end
+        if #BarSkin.Photos == 0 then
+            removePhoto()
+            if next(hidden) then restoreLine() end
+            return
+        end
+        local pg = LP and LP:FindFirstChild("PlayerGui")
+        local mg = pg and pg:FindFirstChild("MainGui")
+        local fishing = mg and mg:FindFirstChild("Fishing")
+        if not (fishing and fishing.Visible) then
+            removePhoto()
+            if next(hidden) then restoreLine() end
+            return
+        end
+        local barFrame, bar = findBar(fishing)
+        if not (barFrame and bar) then
+            removePhoto()
+            if next(hidden) then restoreLine() end
+            return
+        end
+
+        -- 兜底：旧版本（v16~v19）可能把整条 BarFrame 藏在闭包里没还原
+        if not BarSkin._frameFixed then
+            BarSkin._frameFixed = true
+            local okV, vis = pcall(function() return barFrame.Visible end)
+            if okV and vis == false then pcall(function() barFrame.Visible = true end) end
+        end
+
+        ensurePhoto(bar)
+        if not photoImg then return end
+
+        -- 线的尺寸在不同判定阶段会变，照片跟着缩放
+        local w = math.clamp(bar.AbsoluteSize.X * 3.4, 14, 30)
+        local h = math.clamp(bar.AbsoluteSize.Y * 3.4, 26, 60)
+        local cur = photoImg.Size
+        if math.abs(cur.X.Offset - w) > 0.5 or math.abs(cur.Y.Offset - h) > 0.5 then
+            photoImg.Size = UDim2.fromOffset(w, h)
+        end
+
+        muteBar(bar)
+
+        local now = os.clock()
+        if BarSkin.Pick == "all" and now >= nextSwap then
+            nextSwap = now + math.max(2, tonumber(BarSkin.Interval) or 5)
+            if #BarSkin.Photos > 1 then
+                BarSkin._idx = ((BarSkin._idx or 1) % #BarSkin.Photos) + 1
+                swapPhoto()
+            end
+        end
+    end
+
+    -- ---------------- 对外接口 ----------------
+    function BarSkin.SetEnabled(v)
+        BarSkin.Enabled = v and true or false
+        if BarSkin.Enabled then
+            if #BarSkin.Photos == 0 then BarSkin.Scan() end
+            local pg = LP and LP:FindFirstChild("PlayerGui")
+            local mg = pg and pg:FindFirstChild("MainGui")
+            local fishing = mg and mg:FindFirstChild("Fishing")
+            local barFrame, bar = fishing and findBar(fishing)
+            if bar then
+                ensurePhoto(bar)
+                swapPhoto()
+            end
+            nextSwap = os.clock() + math.max(2, tonumber(BarSkin.Interval) or 5)
+        else
+            removePhoto()
+            restoreLine()
+        end
+    end
+
+    function BarSkin.SetPick(p)
+        BarSkin.Pick = p or "all"
+        if BarSkin.Pick == "all" then BarSkin._idx = 1 end
+        if BarSkin.Enabled then swapPhoto() end
+        return BarSkin.Pick
+    end
+
+    function BarSkin.Refresh()
+        local n = BarSkin.Scan()
+        if BarSkin.Enabled then swapPhoto() end
+        if BarSkin._ui and BarSkin._ui.rebuild then pcall(BarSkin._ui.rebuild) end
+        return n
+    end
+
+    function BarSkin.Cleanup()
+        BarSkin.Enabled = false
+        if BarSkin._conn then pcall(function() BarSkin._conn:Disconnect() end) end
+        BarSkin._conn = nil
+        removePhoto()
+        restoreLine()
+    end
+
+    -- ---------------- UI：只剩开关 + 照片网格 ----------------
+    function BarSkin.BuildUI(opt)
+        local page = opt and opt.page
+        if not page then return end
+        local baseOrder = tonumber(opt.order) or 900
+        local function save()
+            if type(opt.onSave) == "function" then pcall(opt.onSave) end
+        end
+        local function notify(...)
+            if type(opt.notify) == "function" then pcall(opt.notify, ...) end
+        end
+
+        -- 清掉上一次注入留下的固定条面板：这一页里用 900+ 编号的只有它
+        -- 注意：page 的子级里还有 UIListLayout / UIPadding，它们没有 LayoutOrder
+        for _, ch in ipairs(page:GetChildren()) do
+            if ch:IsA("GuiObject") then
+                local lo = 0
+                pcall(function() lo = tonumber(ch.LayoutOrder) or 0 end)
+                if lo >= 900 or tostring(ch.Name):sub(1, 11) == "__HWBarSkin" then
+                    pcall(function() ch:Destroy() end)
+                end
+            end
+        end
+
+        -- 分类标题 + 开关行：直接调用主脚本的标准组件，和「皮肤美化」同一套
+        local hdr = createCategoryHeader(page, "固定条美化")
+        hdr.Name = "__HWBarSkinHdr"
+        hdr.LayoutOrder = baseOrder
+
+        local card = createCardGroup(page)
+        card.Name = "__HWBarSkinCard"
+        card.LayoutOrder = baseOrder + 1
+
+        createToggleRow(card, "美化固定条",
+            "只换小游戏固定条那条游走的线，底条和判定保持原样",
+            BarSkin.Enabled, function(v)
+                BarSkin.SetEnabled(v)
+                if type(opt.onSave) == "function" then pcall(opt.onSave) end
+                if v and #BarSkin.Photos == 0 then
+                    notify("固定条美化", "已开启，但 美化固定条 文件夹里还没有照片", "WARN", 4)
+                elseif v then
+                    notify("固定条美化", "已开启：那条线已换成照片", "SUCCESS", 3)
+                else
+                    notify("固定条美化", "已关闭：连线已还原", "INFO", 3)
+                end
+            end)
+
+        -- 照片格子：规格照抄「皮肤美化」相册（84x76、同色描边、同高亮）
+        local gallery = Instance.new("Frame")
+        gallery.Name = "__HWBarSkinGallery"
+        gallery.LayoutOrder = baseOrder + 2
+        gallery.Size = UDim2.new(1, 0, 0, 250)
+        gallery.BackgroundColor3 = Colors.RowNormal
+        gallery.BackgroundTransparency = 0.45
+        gallery.BorderSizePixel = 0
+        gallery.Parent = page
+        Instance.new("UICorner", gallery).CornerRadius = UDim.new(0, 6)
+
+        local gs = Instance.new("ScrollingFrame")
+        gs.Size = UDim2.new(1, -8, 1, -8)
+        gs.Position = UDim2.new(0, 4, 0, 4)
+        gs.BackgroundTransparency = 1
+        gs.BorderSizePixel = 0
+        gs.ScrollBarThickness = 3
+        gs.CanvasSize = UDim2.new(0, 0, 0, 0)
+        gs.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        gs.Parent = gallery
+        local grid = Instance.new("UIGridLayout")
+        grid.CellSize = UDim2.new(0, 84, 0, 76)
+        grid.CellPadding = UDim2.new(0, 4, 0, 4)
+        grid.SortOrder = Enum.SortOrder.LayoutOrder
+        grid.Parent = gs
+
+        -- 空文件夹提示：同一套字体/字号/颜色，不另开风格
+        local emptyText = Instance.new("TextLabel")
+        emptyText.Name = "__HWBarSkinEmpty"
+        emptyText.Size = UDim2.new(1, -16, 1, -16)
+        emptyText.Position = UDim2.new(0, 8, 0, 8)
+        emptyText.BackgroundTransparency = 1
+        emptyText.Font = Enum.Font.GothamMedium
+        emptyText.TextSize = 10
+        emptyText.TextYAlignment = Enum.TextYAlignment.Center
+        emptyText.TextColor3 = Colors.TextMuted
+        emptyText.TextWrapped = true
+        emptyText.RichText = false
+        emptyText.Text = "/storage/emulated/0/Delta/Workspace/CK HUB/重型钓鱼/美化固定条/ 把照片放到这个路径"
+        emptyText.Parent = gallery
+
+        local cells = {}
+        local function highlight()
+            for key, cell in pairs(cells) do
+                local on = (key == tostring(BarSkin.Pick)) or (key == "all" and BarSkin.Pick == "all")
+                local stroke = cell:FindFirstChildOfClass("UIStroke")
+                if stroke then
+                    stroke.Color = on and Color3.fromRGB(178, 120, 255) or Color3.fromRGB(70, 70, 96)
+                    stroke.Thickness = on and 2.5 or 1
+                end
+                pcall(function()
+                    cell.BackgroundColor3 = on and Color3.fromRGB(58, 40, 92) or Colors.ControlBg
+                end)
+            end
+        end
+
+        local function makeCell(key, ord, label, asset)
+            local cell = Instance.new("TextButton")
+            cell.Name = "__HWBarSkinCell" .. tostring(ord)
+            cell.Size = UDim2.new(0, 84, 0, 76)
+            cell.BackgroundColor3 = Colors.ControlBg
+            cell.BackgroundTransparency = 0.15
+            cell.AutoButtonColor = false
+            cell.Text = ""
+            cell.LayoutOrder = ord
+            cell.Parent = gs
+            Instance.new("UICorner", cell).CornerRadius = UDim.new(0, 5)
+            local st = Instance.new("UIStroke")
+            st.Color = Color3.fromRGB(70, 70, 96)
+            st.Thickness = 1
+            st.Parent = cell
+
+            if asset then
+                local img = Instance.new("ImageLabel")
+                img.Size = UDim2.new(1, -8, 0, 50)
+                img.Position = UDim2.new(0, 4, 0, 4)
+                img.BackgroundTransparency = 1
+                img.Image = asset
+                img.ScaleType = Enum.ScaleType.Crop
+                img.Parent = cell
+                Instance.new("UICorner", img).CornerRadius = UDim.new(0, 4)
+            else
+                local box = Instance.new("Frame")
+                box.Size = UDim2.new(1, -8, 0, 50)
+                box.Position = UDim2.new(0, 4, 0, 4)
+                box.BackgroundColor3 = Colors.PurplePrimary
+                box.BackgroundTransparency = 0.85
+                box.BorderSizePixel = 0
+                box.Parent = cell
+                Instance.new("UICorner", box).CornerRadius = UDim.new(0, 4)
+                local t = Instance.new("TextLabel")
+                t.Size = UDim2.new(1, 0, 1, 0)
+                t.BackgroundTransparency = 1
+                t.Font = Enum.Font.GothamBold
+                t.TextSize = 9
+                t.TextColor3 = Colors.PurplePrimary
+                t.Text = "无预览"
+                t.TextWrapped = true
+                t.Parent = box
+            end
+
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(1, -8, 0, 16)
+            lbl.Position = UDim2.new(0, 4, 0, 56)
+            lbl.BackgroundTransparency = 1
+            lbl.Font = Enum.Font.GothamBold
+            lbl.TextSize = 8
+            lbl.TextColor3 = Colors.TextWhite
+            lbl.TextXAlignment = Enum.TextXAlignment.Left
+            lbl.TextTruncate = Enum.TextTruncate.AtEnd
+            lbl.Text = label or ""
+            lbl.Parent = cell
+
+            cell.MouseButton1Click:Connect(function()
+                BarSkin.Pick = key
+                BarSkin._idx = 1
+                if BarSkin.Enabled then swapPhoto() end
+                highlight()
+                save()
+            end)
+            cells[key] = cell
+        end
+
+        local function rebuild()
+            for _, ch in ipairs(gs:GetChildren()) do
+                if ch:IsA("TextButton") then ch:Destroy() end
+            end
+            table.clear(cells)
+            local n = #BarSkin.Photos
+            emptyText.Visible = (n == 0)
+            gs.Visible = (n > 0)
+            if n > 0 then
+                -- 没有「全部轮播」了：Pick 永远是具体文件名
+                -- 旧存档里的 all、或者选中的图被删了，都退回第一张
+                local valid = false
+                for _, p in ipairs(BarSkin.Photos) do
+                    if p.name == tostring(BarSkin.Pick) then valid = true break end
+                end
+                if not valid then
+                    BarSkin.Pick = BarSkin.Photos[1].name
+                    BarSkin._idx = 1
+                    if BarSkin.Enabled then swapPhoto() end
+                end
+                local ord = 0
+                for _, p in ipairs(BarSkin.Photos) do
+                    ord = ord + 1
+                    makeCell(p.name, ord, p.name, p.asset)
+                end
+            end
+            highlight()
+        end
+
+        rebuild()
+        BarSkin._ui = { rebuild = rebuild }
+
+        -- 文件夹有增删：5 秒内自动重建，不用刷新按钮
+        if not BarSkin._watcher then
+            local function signature()
+                local names = {}
+                for _, dir in ipairs(DIR_CANDIDATES) do
+                    local list = listDir(dir)
+                    if list then
+                        for _, f in ipairs(list) do
+                            local low = string.lower(tostring(f))
+                            if low:match("%.png$") or low:match("%.jpg$") or low:match("%.jpeg$")
+                                or low:match("%.bmp$") or low:match("%.tga$") then
+                                names[#names + 1] = tostring(f)
+                            end
+                        end
+                    end
+                end
+                table.sort(names)
+                return table.concat(names, "|")
+            end
+            local lastSig = signature()
+            BarSkin._watcher = task.spawn(function()
+                while true do
+                    task.wait(5)
+                    pcall(function()
+                        if not gallery.Parent then return end
+                        local sig = signature()
+                        if sig ~= lastSig then
+                            lastSig = sig
+                            BarSkin.Scan()
+                            rebuild()
+                            if BarSkin.Enabled then swapPhoto() end
+                        end
+                    end)
+                end
+            end)
+        end
+    end
+
+    -- ---------------- 启动 ----------------
+    -- 清掉旧版本/重复注入留下的覆盖层
+    do
+        local roots = {}
+        if type(gethui) == "function" then
+            local ok, h = pcall(gethui)
+            if ok and h then roots[#roots + 1] = h end
+        end
+        local okCg, cg = pcall(function() return game:GetService("CoreGui") end)
+        if okCg and cg then roots[#roots + 1] = cg end
+        local pg0 = LP:FindFirstChild("PlayerGui")
+        if pg0 then roots[#roots + 1] = pg0 end
+        for _, root0 in ipairs(roots) do
+            local okD, list = pcall(function() return root0:GetDescendants() end)
+            if okD and list then
+                for _, obj in ipairs(list) do
+                    if obj.Name == "CKHUB_BarSkin" or obj.Name == "__HWFixedBar" then
+                        pcall(function() obj:Destroy() end)
+                    end
+                end
+            end
+        end
+    end
+
+    BarSkin.Scan()
+    BarSkin._conn = RunService.RenderStepped:Connect(function()
+        local ok, err = pcall(update)
+        if not ok and G.HW_BarSkinDebug then warn("[BarSkin] " .. tostring(err)) end
+    end)
+
+    G.HW_BarSkin = BarSkin
+end
+
+
+-- 按存档恢复状态
+pcall(function()
+    local bs = getgenv().HW_BarSkin
+    if bs and type(bs.SetPick) == "function" then
+        bs.SetPick(Config.BarSkinPick or "")
+        if Config.BarSkin then bs.SetEnabled(true) end
+    end
+end)
+
+
 -- ============================================================
 -- ⚔️ 智能技能连招（Smart Combos）—— 移植自翻译版
 -- 说明：缩小版 lastSkillTime/SkillInterval 声明在 UI 构建之后，
@@ -1638,6 +2312,52 @@ do
         return btn.Visible == true
     end
 
+    -- ★ 这台设备到底装了哪些技能：直接读玩家数据里「当前鱼竿」的 Skill 槽位。
+    --   小游戏开始时游戏会把空槽 TextButton.Visible=false，但按钮上的 Title 可能是
+    --   上一把竿的旧标题（实测 4 个键都显示 Thai Cuc Quyen，实际是换过竿），
+    --   所以 UI 不可靠，数据层最准。
+    --   实测 2026-11-23 Maoshan Rod：Z/X/C 有技能，V = ""（空槽）。
+    --   旧版把 V 当快速捕杀/回血/循环成员 -> 一直按一个空槽，
+    --   严格顺序下还会卡死在 V 上再也不往下走。
+    local skillSlotCache = { at = 0, map = nil }
+    local function GetInstalledSkillMap()
+        local now = tick()
+        if skillSlotCache.map and (now - skillSlotCache.at) < 2 then
+            return skillSlotCache.map
+        end
+        local map = {}
+        local data = ReplicatedStorage:FindFirstChild("Data")
+        local me = data and data:FindFirstChild(tostring(LocalPlayer.UserId))
+        local inv = me and me:FindFirstChild("FishingRodInventory")
+        local rod = me and me:FindFirstChild("FishingRod")
+        local r = inv and rod and inv:FindFirstChild(tostring(rod.Value))
+        local sk = r and r:FindFirstChild("Skill")
+        if sk then
+            for _, k in ipairs({ "Z", "X", "C", "V" }) do
+                local v = sk:FindFirstChild(k)
+                local name = v and tostring(v.Value) or ""
+                if name ~= "" then map[k] = name end
+            end
+        end
+        if next(map) ~= nil then
+            skillSlotCache.at = now
+            skillSlotCache.map = map
+        end
+        return map
+    end
+
+    local function IsSkillInstalled(key)
+        key = tostring(key or ""):upper()
+        if not key:match("^[ZXCV]$") then return false end
+        local map = GetInstalledSkillMap()
+        if next(map) == nil then
+            -- 数据还没读到（过图/换竿瞬间）：退回 UI 可见性判断
+            local btn = comboState.GetSkillButton(key)
+            return btn == nil or btn.Visible == true
+        end
+        return map[key] ~= nil
+    end
+
     function comboState.CastSkill(key, fUI)
         key = tostring(key or ""):upper()
         if not key:match("^[ZXCV]$") then return false end
@@ -1687,6 +2407,10 @@ do
         comboState.lastCastTime = tick()
         comboState.lastActionTime = tick()
         comboState.lastCastingKey = key
+        -- 调试：getgenv().HW_COMBO_DEBUG = true 后，每次施放都会打进控制台（排查用，默认不打印）
+        if getgenv and getgenv().HW_COMBO_DEBUG then
+            print(string.format("[COMBO] cast %s hp=%.0f idx=%d t=%.3f", key, comboState.lastFishHp or -1, comboState.loopTargetIndex or -1, tick()))
+        end
         return true
     end
 
@@ -1714,35 +2438,59 @@ do
         return nil
     end
 
-    local function GetFishHealth(fUI)
-        -- 1. Workspace.Fishes[FishID]
-        local fishID = LocalPlayer:GetAttribute("FishID")
+    -- 找到「本地玩家正在打的那条鱼」。
+    -- 实测游戏结构（2026-11-23，v23 现场探测）：
+    --   Workspace.Fishes/<uuid> 带属性 MaxHealth / FishName / Boss，
+    --   子节点 "<UserId>_PlayerHealth" 是 NumberValue（这条鱼对本人的血量），
+    --   以及 Ready / Buoy / PlayerContribution / Model；
+    --   ★ 没有 Value / FishHealth / Health 子节点，LocalPlayer 上也没有 FishID 属性。
+    -- 旧版只认 Value/FishHealth -> 永远找不到 -> return 10 -> 永远 ≤ 阈值 -> 只按快速捕杀技能。
+    local function GetMyFightFish()
         local fishesFolder = Workspace:FindFirstChild("Fishes")
-        if fishID and fishesFolder then
-            local f = fishesFolder:FindFirstChild(fishID)
-            if f then
-                -- 游戏里的真实血量：鱼模型上的 MaxHealth 属性 = 总血，子节点 Value = 已掉的血。
-                -- 原版只找 FishHealth/Health 子节点，永远找不到 -> 一律 return 10，
-                -- 于是「>阈值」的起手/循环连招永远进不去，只能反复按快速捕杀技能。
-                local maxHpA = f:GetAttribute("MaxHealth")
-                local dmgV = f:FindFirstChild("Value")
-                if dmgV and type(dmgV.Value) == "number" then
-                    if type(maxHpA) == "number" and maxHpA > 0 then
-                        return math.max(0, maxHpA - dmgV.Value)
-                    end
-                    return dmgV.Value
+        if not fishesFolder then return nil end
+
+        local fishID = LocalPlayer:GetAttribute("FishID")
+        if fishID and fishID ~= "" then
+            local f0 = fishesFolder:FindFirstChild(tostring(fishID))
+            if f0 then return f0 end
+        end
+
+        local uid = tostring(LocalPlayer.UserId)
+        local kids = fishesFolder:GetChildren()
+        for _, f in ipairs(kids) do
+            local ph = f:FindFirstChild(uid .. "_PlayerHealth")
+            if ph and (ph:IsA("NumberValue") or ph:IsA("IntValue")) and (tonumber(ph.Value) or 0) > 0 then
+                return f
+            end
+        end
+        -- 旧格式兜底：鱼模型上直接有 Value（已掉的血）
+        for _, f in ipairs(kids) do
+            if f:FindFirstChild("Value") then return f end
+        end
+        return nil
+    end
+
+    local function GetFishHealth(fUI)
+        -- 1. 本地玩家自己的鱼：<UserId>_PlayerHealth = 这条鱼当前血量
+        local f = GetMyFightFish()
+        if f then
+            local uid = tostring(LocalPlayer.UserId)
+            local maxHpA = f:GetAttribute("MaxHealth")
+            local ph = f:FindFirstChild(uid .. "_PlayerHealth")
+            if ph and (ph:IsA("NumberValue") or ph:IsA("IntValue")) then
+                local v = tonumber(ph.Value) or 0
+                if type(maxHpA) == "number" and maxHpA > 0 then
+                    return math.clamp(v, 0, maxHpA)
                 end
-                local hpVal = f:FindFirstChild("FishHealth") or f:FindFirstChild("Health")
-                if hpVal and (hpVal:IsA("NumberValue") or hpVal:IsA("IntValue")) and hpVal.Value > 0 then
-                    return hpVal.Value
+                return math.max(v, 0)
+            end
+            -- 旧格式兜底：Value = 已掉的血
+            local dmgV = f:FindFirstChild("Value")
+            if dmgV and type(dmgV.Value) == "number" then
+                if type(maxHpA) == "number" and maxHpA > 0 then
+                    return math.max(0, maxHpA - dmgV.Value)
                 end
-                for _, child in ipairs(f:GetChildren()) do
-                    if (child.Name:find("FishHealth") or child.Name:find("Health")) and not child.Name:find("Player") then
-                        if (child:IsA("NumberValue") or child:IsA("IntValue")) and child.Value > 0 then
-                            return child.Value
-                        end
-                    end
-                end
+                return dmgV.Value
             end
         end
 
@@ -1796,8 +2544,9 @@ do
             end
         end
 
-        -- 全失败 -> 普通鱼
-        return 10
+        -- 全失败 -> 血量未知：按「大血条」处理，走起手/循环。
+        -- （旧版这里 return 10，等于永远 ≤ 阈值 -> 永远只按快速捕杀技能 V）
+        return 999999
     end
 
     local function GetPlayerHealth(fUI)
@@ -1887,7 +2636,7 @@ do
                 for _ = 1, #keys do
                     local key = keys[comboState.legacySkillIdx]
                     comboState.legacySkillIdx = comboState.legacySkillIdx % #keys + 1
-                    if comboState.CanCast(key, fUI) and not comboState.IsSkillOnCooldown(key, fUI) then
+                    if IsSkillInstalled(key) and comboState.CanCast(key, fUI) and not comboState.IsSkillOnCooldown(key, fUI) then
                         comboState.CastSkill(key, fUI)
                         comboState.legacyLastSkillTime = now
                         break
@@ -1902,6 +2651,22 @@ do
             return
         end
         comboState.lastRunTime = now
+
+        -- ★ 每局小游戏开始重置连招状态。
+        --   不重置的话，新一局会沿用上一局停下的循环位置（和已用过的起手），
+        --   看起来就是「一开局先按上一个技能/最后一个技能」。
+        --   游戏的 FishingSession 每开一次小游戏 +1，用它当"新一局"的信号。
+        local sessChar = LocalPlayer.Character
+        local session = sessChar and sessChar:GetAttribute("FishingSession")
+        if session ~= nil and session ~= comboState.lastSession then
+            if comboState.lastSession ~= nil then
+                comboState.Reset()
+                if getgenv and getgenv().HW_COMBO_DEBUG then
+                    print(string.format("[COMBO] reset session=%s t=%.3f", tostring(session), tick()))
+                end
+            end
+            comboState.lastSession = session
+        end
 
         if IsCharacterCastingSkill() then
             return
@@ -1930,7 +2695,7 @@ do
             local healKey = tostring(healKeyRaw):match("([ZXCVzxcv])")
             if healKey then
                 healKey = healKey:upper()
-                if playerHp <= (tonumber(Config.EmergencyHealHp) or 40) then
+                if playerHp <= (tonumber(Config.EmergencyHealHp) or 40) and IsSkillInstalled(healKey) then
                     if comboState.CanCast(healKey, fUI) and not comboState.IsSkillOnCooldown(healKey, fUI) then
                         comboState.CastSkill(healKey, fUI)
                         return
@@ -1941,21 +2706,24 @@ do
 
         -- 2. 鱼血量判断
         local fishHp = GetFishHealth(fUI)
+        comboState.lastFishHp = fishHp
         local threshold = tonumber(Config.FishHpThreshold) or 500
 
         if fishHp <= threshold then
             local quick = Config.QuickCatchSkill
+            local qk = nil
             if quick and quick ~= "关闭" then
-                local qk = tostring(quick):match("([ZXCVzxcv])")
-                if qk then
-                    qk = qk:upper()
-                    if comboState.CanCast(qk, fUI) and not comboState.IsSkillOnCooldown(qk, fUI) then
-                        comboState.CastSkill(qk, fUI)
-                    end
-                end
+                local m = tostring(quick):match("([ZXCVzxcv])")
+                if m and IsSkillInstalled(m:upper()) then qk = m:upper() end
             end
-            -- 快速捕杀阶段不进入循环
-            return
+            if qk then
+                if comboState.CanCast(qk, fUI) and not comboState.IsSkillOnCooldown(qk, fUI) then
+                    comboState.CastSkill(qk, fUI)
+                end
+                -- 快速捕杀阶段不进入循环
+                return
+            end
+            -- 快速捕杀技能是空槽：不 return，继续走起手/循环
         end
 
         -- 3. 起手技能
@@ -1969,7 +2737,10 @@ do
                     local ok = tostring(opener):match("([ZXCVzxcv])")
                     if ok then
                         local k = ok:upper()
-                        if comboState.CanCast(k, fUI) and not comboState.IsSkillOnCooldown(k, fUI) then
+                        if not IsSkillInstalled(k) then
+                            -- 起手技能是空槽：标记完成，别卡在这里
+                            comboState.openerDone = true
+                        elseif comboState.CanCast(k, fUI) and not comboState.IsSkillOnCooldown(k, fUI) then
                             if comboState.CastSkill(k, fUI) then
                                 comboState.openerUsedCount = comboState.openerUsedCount + 1
                                 if comboState.openerUsedCount >= maxCount then
@@ -1999,7 +2770,7 @@ do
                 local fk = tostring(fallback):match("([ZXCVzxcv])")
                 if fk then
                     fk = fk:upper()
-                    if comboState.CanCast(fk, fUI) and not comboState.IsSkillOnCooldown(fk, fUI) then
+                    if IsSkillInstalled(fk) and comboState.CanCast(fk, fUI) and not comboState.IsSkillOnCooldown(fk, fUI) then
                         comboState.CastSkill(fk, fUI)
                     end
                 end
@@ -2019,6 +2790,13 @@ do
             comboState.loopTargetIndex = comboState.loopTargetIndex % #loopKeys + 1
             comboState.lastCastingKey = nil
             targetKey = loopKeys[comboState.loopTargetIndex]
+        end
+
+        -- 目标槽位没装技能（游戏把空槽按钮 Visible=false）：直接跳到下一个
+        if not IsSkillInstalled(targetKey) then
+            comboState.loopTargetIndex = comboState.loopTargetIndex % #loopKeys + 1
+            comboState.lastCastingKey = nil
+            return
         end
 
         if comboState.CanCast(targetKey, fUI) and not comboState.IsSkillOnCooldown(targetKey, fUI) then
@@ -4557,7 +5335,7 @@ function HopState.SaveNPCHopState(visitedList)
     local isAnyActive = Config.AutoServerHopTaoist or Config.AutoServerHopMaoshan or Config.AutoServerHopGod
     if isAnyActive then
         pcall(function()
-            writefile("HeavyweightFishing_NPCHop.json", HttpService:JSONEncode({
+            writefile(HW_NPCHOP_FILE, HttpService:JSONEncode({
                 Active = true,
                 Taoist = Config.AutoServerHopTaoist == true,
                 Maoshan = Config.AutoServerHopMaoshan == true,
@@ -4568,8 +5346,8 @@ function HopState.SaveNPCHopState(visitedList)
         end)
     else
         pcall(function()
-            if isfile("HeavyweightFishing_NPCHop.json") and delfile then
-                delfile("HeavyweightFishing_NPCHop.json")
+            if isfile(HW_NPCHOP_FILE) and delfile then
+                delfile(HW_NPCHOP_FILE)
             end
         end)
     end
@@ -4587,8 +5365,8 @@ function HopState.ClearNPCHopState()
         if ctrl and ctrl.Set then pcall(ctrl.Set, false) end
     end
     pcall(function()
-        if isfile and isfile("HeavyweightFishing_NPCHop.json") and delfile then
-            delfile("HeavyweightFishing_NPCHop.json")
+        if isfile and isfile(HW_NPCHOP_FILE) and delfile then
+            delfile(HW_NPCHOP_FILE)
         end
     end)
 end
@@ -5132,7 +5910,7 @@ do
     function WeatherHop.SaveState()
         if not (writefile and isfile) then return end
         pcall(function()
-            writefile("HeavyweightFishing_WeatherHop.json", HttpService:JSONEncode({
+            writefile(HW_WEATHER_FILE, HttpService:JSONEncode({
                 Active = true,
                 TargetWeather = WeatherHop.target,
                 Visited = HopState.visited,
@@ -5143,8 +5921,8 @@ do
 
     function WeatherHop.DeleteState()
         pcall(function()
-            if isfile and isfile("HeavyweightFishing_WeatherHop.json") and delfile then
-                delfile("HeavyweightFishing_WeatherHop.json")
+            if isfile and isfile(HW_WEATHER_FILE) and delfile then
+                delfile(HW_WEATHER_FILE)
             end
         end)
     end
@@ -5281,7 +6059,7 @@ createToggleRow(hopCard, "自动四圣兽跳服", "开启前要在忍者设置�
         if fourBeastsState and fourBeastsState.Start then fourBeastsState.Start() end
     else
         -- 用户主动关闭 → 彻底清掉持久化标记
-        if delfile then pcall(delfile, "fourbeasts_autostart.txt") end
+        if delfile then pcall(delfile, HW_AUTOSTART_FILE) end
         if getgenv then getgenv().AutoFourBeastsOnJoin = nil end
         pcall(SaveProfile)
     end
@@ -5653,6 +6431,16 @@ createButtonRow(charCard, "亚索", "主线任务", "对话", function()
 end)
 createCategoryHeader(tabQuests, "NPC任务")
 local invAutoCard = createCardGroup(tabQuests)
+
+-- 兑换码：放在「任务」页最下面，只兑换游戏内 Code 标记为 false 的码（按钮只有一个）
+local redeemHdr = createCategoryHeader(tabQuests, "兑换码")
+redeemHdr.LayoutOrder = 990
+local redeemCard = createCardGroup(tabQuests)
+redeemCard.LayoutOrder = 991
+createButtonRow(redeemCard, "一键兑换全部兑换码", "（只兑换没兑换过的）", "兑换", function()
+    local fn = getgenv().HW_Redeem and getgenv().HW_Redeem.Run
+    if type(fn) == "function" then fn() else ShowNotification("兑换码", "兑换模块还没加载完成，请稍后再试。", "WARN", 5) end
+end)
 
 local giveFishSlotPointer  = 1
 local giveFishMovedItems   = {}
@@ -6499,7 +7287,7 @@ function fourBeastsState.ServerHopWithPersist()
     fourBeastsState.lastHop = now
 
     if writefile then
-        pcall(writefile, "fourbeasts_autostart.txt", "1")
+        pcall(writefile, HW_AUTOSTART_FILE, "1")
     end
 
     local hasQOT = queue_on_teleport ~= nil
@@ -8071,21 +8859,24 @@ table.insert(activeConnections, task.spawn(function()
                         local pressed = false
                         if VirtualInputManager then
                             -- 不再用 ToggleHotbar:InvokeServer（RemoteFunction 连点风险高），
-                            -- 改成模拟按一下热键 1：游戏自己的按键处理会去切换手持物，
-                            -- 效果一样，但走的是玩家输入通道，和真人操作没有区别。
+                            -- 改成模拟按热键 1。注意：按一次只是「收起」，要按两次才会重新
+                            -- 拿出来（收 → 放），所以这里间隔 0.6 秒连按两次。
                             pressed = pcall(function()
-                                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.One, false, game)
-                                task.delay(0.05, function()
-                                    pcall(function()
-                                        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.One, false, game)
+                                local function tapOne()
+                                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.One, false, game)
+                                    task.delay(0.05, function()
+                                        pcall(function()
+                                            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.One, false, game)
+                                        end)
                                     end)
+                                end
+                                tapOne()
+                                task.delay(0.6, function()
+                                    pcall(tapOne)
                                 end)
                             end)
                         end
-                        ShowNotification("反挂机",
-                            string.format("HP 进度条 1 分钟未变化，已按热键 1 重装（第 %d 次）%s",
-                                hpTryCount, pressed and "" or "（按键发送失败）"),
-                            "WARN", 3)
+                        ShowNotification("反挂机", "HP 进度条 1 分钟未变化 已热键", "WARN", 3)
                         if getgenv then
                             getgenv().HW_HP_STUCK = os.time()
                             local lg = getgenv().HW_CRASHLOG
@@ -8956,6 +9747,241 @@ local function installLocalItemsPage()
         obj.Value = newValue
     end
 
+    ------------------------------------------------------------
+    -- 称号：本地全解锁 + 本地装备（补丁，v21）
+    --   本 hub 有硬性要求：不装 __namecall（反复装卸会残留 -> 卡死闪退）。
+    --   这里改用「给称号列表项补一条点击连接」实现本地装备：
+    --   游戏自己的连接照旧发远程（服务器会拒），我们的连接在本地生效。
+    ------------------------------------------------------------
+    local TitlesLocal = { conns = {}, bound = {}, equipped = nil, billboard = nil, listConn = nil, charConn = nil,
+        hidden = {}, hrpConn = nil }
+
+    local function titleInfoFolder()
+        local info = ReplicatedStorage:FindFirstChild("Info")
+        return info and info:FindFirstChild("Player_Title")
+    end
+
+    local function titleDataFolder()
+        local me = getLocalItemData()
+        return me and me:FindFirstChild("PlayerTitle")
+    end
+
+    local function titleGuildTag()
+        local ls = LocalPlayer:FindFirstChild("leaderstats")
+        local g = ls and ls:FindFirstChild("Guild")
+        if g and type(g.Value) == "string" and g.Value ~= "" and g.Value ~= "Homeless" then
+            return g.Value
+        end
+        return ""
+    end
+
+    -- 游戏自己会挂一条 EquippedTitle（服务器上装的称号）。
+    -- 本地再挂一条就会「同时显示两个」，所以本地称号生效期间要把游戏那条藏起来，卸下时还原。
+    -- 上一个实例（脚本重载）可能把本地称号留在了头上，带标记的直接清掉
+    local function clearStaleLocalTitles(hrp)
+        hrp = hrp or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart"))
+        if not hrp then return end
+        for _, d in ipairs(hrp:GetChildren()) do
+            if d:IsA("BillboardGui") and d:GetAttribute("HWLocalTitle") then
+                pcall(function() d:Destroy() end)
+            end
+        end
+    end
+
+    local function hideGameTitleGuis(hrp)
+        if not hrp then return end
+        TitlesLocal.hidden = TitlesLocal.hidden or {}
+        for _, d in ipairs(hrp:GetChildren()) do
+            if d:IsA("BillboardGui") and d.Name == "EquippedTitle" and d ~= TitlesLocal.billboard
+                and not d:GetAttribute("HWLocalTitle") then
+                if TitlesLocal.hidden[d] == nil then TitlesLocal.hidden[d] = d.Enabled end
+                pcall(function() d.Enabled = false end)
+            end
+        end
+    end
+
+    local function restoreGameTitleGuis()
+        for g, was in pairs(TitlesLocal.hidden or {}) do
+            if g and g.Parent then pcall(function() g.Enabled = was ~= false end) end
+        end
+        TitlesLocal.hidden = {}
+    end
+
+    local function refreshTitleBillboard(name)
+        if TitlesLocal.billboard then
+            pcall(function() TitlesLocal.billboard:Destroy() end)
+            TitlesLocal.billboard = nil
+        end
+        local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then clearStaleLocalTitles(hrp) end
+        if not (hrp and name) then
+            restoreGameTitleGuis()
+            if TitlesLocal.hrpConn then pcall(function() TitlesLocal.hrpConn:Disconnect() end); TitlesLocal.hrpConn = nil end
+            return
+        end
+        local infoT = titleInfoFolder()
+        local m = infoT and infoT:FindFirstChild(name)
+        local tmpl = m and m:FindFirstChild("Title")
+        if not (tmpl and tmpl:IsA("BillboardGui")) then return end
+        local bb = tmpl:Clone()
+        bb.Name = "EquippedTitle"
+        bb.Adornee = hrp
+        bb.Enabled = true
+        bb.AlwaysOnTop = true
+        local tag = titleGuildTag()
+        local firstTitle = false
+        for _, d in ipairs(bb:GetDescendants()) do
+            if d:IsA("TextLabel") then
+                if d.Name == "PlayerName" then
+                    d.Text = LocalPlayer.DisplayName
+                elseif d.Name == "Title" then
+                    if not firstTitle then
+                        -- 模板自带的展示名最准；模块里的 Name 带 " Title" 后缀，头上不该出现
+                        firstTitle = true
+                    else
+                        d.Text = tag
+                        d.Visible = tag ~= ""
+                    end
+                end
+            end
+        end
+        bb:SetAttribute("HWLocalTitle", true)
+        bb.Parent = hrp
+        TitlesLocal.billboard = bb
+        hideGameTitleGuis(hrp)
+
+        -- 游戏之后重新挂/换称号时，新出现的 EquippedTitle 也一起藏掉
+        if TitlesLocal.hrpConn then pcall(function() TitlesLocal.hrpConn:Disconnect() end) end
+        TitlesLocal.hrpConn = hrp.ChildAdded:Connect(function(d)
+            if not TitlesLocal.equipped then return end
+            if d:IsA("BillboardGui") and d.Name == "EquippedTitle" and d ~= TitlesLocal.billboard then
+                task.defer(function()
+                    if d.Parent and TitlesLocal.equipped then
+                        TitlesLocal.hidden[d] = d.Enabled
+                        pcall(function() d.Enabled = false end)
+                    end
+                end)
+            end
+        end)
+    end
+
+    local function equipTitleLocal(name)
+        local pt = titleDataFolder()
+        local infoT = titleInfoFolder()
+        if not (pt and infoT) then return false end
+        if name and not infoT:FindFirstChild(name) then return false end
+        for _, f in ipairs(pt:GetChildren()) do
+            local e = f:FindFirstChild("Equip")
+            if e then
+                local want = (f.Name == name)
+                -- 走 hub 的快照器：清理时能精确还原每个称号原本的装备状态
+                if e.Value ~= want then localSet(e, want) end
+            end
+        end
+        TitlesLocal.equipped = name
+        refreshTitleBillboard(name)
+        ShowNotification("本地称号", name and ("已装备 " .. tostring(name) .. "（本地显示）") or "已卸下称号", "SUCCESS", 3)
+        return true
+    end
+
+    local function bindTitleClicks()
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        local main = pg and pg:FindFirstChild("MainGui")
+        local mm = main and main:FindFirstChild("Main")
+        local tl = mm and mm:FindFirstChild("TitleList")
+        local list = tl and tl:FindFirstChild("List")
+        if not list then return end
+        local function bindItem(item)
+            if not item:IsA("Frame") or item.Name == "Template" then return end
+            if TitlesLocal.bound[item] then return end
+            TitlesLocal.bound[item] = true
+            local sel = item:FindFirstChild("Select")
+            local btn = sel and sel:FindFirstChild("Button")
+            if not btn then return end
+            table.insert(TitlesLocal.conns, btn.MouseButton1Click:Connect(function()
+                pcall(equipTitleLocal, item.Name)
+            end))
+        end
+        for _, item in ipairs(list:GetChildren()) do bindItem(item) end
+        if not TitlesLocal.listConn then
+            TitlesLocal.listConn = list.ChildAdded:Connect(function(item)
+                task.defer(function() bindItem(item) end)
+            end)
+        end
+    end
+
+    local function applyLocalTitles(silent)
+        pcall(clearStaleLocalTitles)
+        local pt = titleDataFolder()
+        local infoT = titleInfoFolder()
+        if not (pt and infoT) then
+            if not silent then ShowNotification("本地称号", "玩家数据还没加载完，进游戏后再点。", "WARN", 4) end
+            return false
+        end
+        -- 游戏本版 bug：称号页脚本开头是 while not PlayerTitle:GetAttribute("Ready")，
+        -- 服务器从不设这个属性 -> 列表不建、按钮也不响应，页面永远是空的。
+        if pt:GetAttribute("Ready") == nil then pt:SetAttribute("Ready", true) end
+        local n = 0
+        for _, m in ipairs(infoT:GetChildren()) do
+            if m:IsA("ModuleScript") then
+                local f = pt:FindFirstChild(m.Name)
+                if not f then
+                    f = Instance.new("Folder")
+                    f.Name = m.Name
+                    f:SetAttribute("HWLocalCreated", true)
+                    f.Parent = pt
+                end
+                local o = f:FindFirstChild("Owned")
+                if not o then
+                    o = Instance.new("BoolValue")
+                    o.Name = "Owned"
+                    o.Parent = f
+                end
+                localSet(o, true)
+                if not f:FindFirstChild("Equip") then
+                    local e = Instance.new("BoolValue")
+                    e.Name = "Equip"
+                    e.Parent = f
+                end
+                n = n + 1
+            end
+        end
+        bindTitleClicks()
+        if not TitlesLocal.charConn then
+            TitlesLocal.charConn = LocalPlayer.CharacterAdded:Connect(function()
+                task.wait(1)
+                if TitlesLocal.equipped then refreshTitleBillboard(TitlesLocal.equipped) end
+            end)
+        end
+        if not silent then
+            ShowNotification("本地称号", ("已解锁 %d 个称号（含隐藏），去游戏称号页点 Select 即可换"):format(n), "SUCCESS", 5)
+        end
+        return true
+    end
+
+    local function clearLocalTitles()
+        for _, c in ipairs(TitlesLocal.conns) do
+            pcall(function() c:Disconnect() end)
+        end
+        TitlesLocal.conns = {}
+        TitlesLocal.bound = {}
+        if TitlesLocal.listConn then pcall(function() TitlesLocal.listConn:Disconnect() end) end
+        if TitlesLocal.charConn then pcall(function() TitlesLocal.charConn:Disconnect() end) end
+        TitlesLocal.listConn = nil
+        TitlesLocal.charConn = nil
+        if TitlesLocal.billboard then pcall(function() TitlesLocal.billboard:Destroy() end) end
+        TitlesLocal.billboard = nil
+        TitlesLocal.equipped = nil
+        local pt = titleDataFolder()
+        if pt then
+            for _, f in ipairs(pt:GetChildren()) do
+                if f:GetAttribute("HWLocalCreated") == true then
+                    pcall(function() f:Destroy() end)
+                end
+            end
+        end
+    end
+
     local function applyLocalItems()
         local me = getLocalItemData()
         if not me then
@@ -9061,7 +10087,15 @@ local function installLocalItemsPage()
             end
         end
 
-        ShowNotification("本地物品", "已获得全物品", "SUCCESS", 4)
+        -- 顺带：本地全称号（含隐藏称号），并修好称号页卡住的 Ready 开关
+        pcall(function() applyLocalTitles(true) end)
+
+        -- 顺带把商店里的通行证全部刷成「已拥有」（纯本地显示，不解锁任何东西）
+        Config.ShopShowOwned = true
+        local shopFn = getgenv and getgenv().HW_ShopOwned
+        if shopFn then pcall(shopFn, true) end
+
+        ShowNotification("本地物品", "已获得全物品（本地显示）", "SUCCESS", 4)
         return true
     end
 
@@ -9141,6 +10175,9 @@ local function installLocalItemsPage()
         end
         LocalItems.createdOrbs = {}
 
+        -- 称号：断掉本地点击绑定、撤掉头顶标签、删掉本地补出来的称号条目
+        pcall(clearLocalTitles)
+
         -- 外观类残留（别的脚本给角色 / 鱼竿套过皮肤的话一并撤掉）
         local genv = getgenv and getgenv() or nil
         if genv then
@@ -9171,6 +10208,9 @@ local function installLocalItemsPage()
         if mode == "none" then
             ShowNotification("本地物品", "没找到玩家数据，无法清理。", "WARN", 4)
         else
+            Config.ShopShowOwned = false
+            local shopFn = getgenv and getgenv().HW_ShopOwned
+            if shopFn then pcall(shopFn, false) end
             ShowNotification("本地物品", "已清理全物品", "SUCCESS", 4)
         end
     end
@@ -9182,14 +10222,19 @@ local function installLocalItemsPage()
         local card = createCardGroup(page)
 
         createButtonRow(card, "一键全物品",
-            "这个功能只是本地 只能看不能装 如果你有就可以装",
+            "只能看不能用",
             "应用", applyLocalItems)
 
         createButtonRow(card, "一键清理",
             "把本地改过的鱼饵 / 技能 / 鱼竿 / 皮肤 / 角色 / 宝珠还原回去",
             "清理", clearLocalItems)
+
+        createButtonRow(card, "本地全称号",
+            "解锁 14 个称号（含隐藏），再去游戏内称号页点 Select 就能本地换上",
+            "应用", function() applyLocalTitles(false) end)
     -- ----- 皮肤美化（鱼竿皮肤实体化 + 预览格子）-----
     createCategoryHeader(page, "皮肤美化")
+
     local beautyCard = createCardGroup(page)
 
     local beautyToggle = createToggleRow(beautyCard, "皮肤美化",
@@ -9199,6 +10244,26 @@ local function installLocalItemsPage()
             Config.RodSkinBeauty = v
             local eng = getgenv().HW_RodSkin
             if eng then pcall(eng.Enable, v) end
+            pcall(SaveProfile)
+        end)
+
+    createToggleRow(beautyCard, "皮肤常驻粒子",
+        "皮肤自带的闪电/星光（默认关：常驻会糊成一片，把竿子和技能特效盖住；关掉后甩竿/中鱼仍会爆一下）",
+        Config.RodSkinFX,
+        function(v)
+            Config.RodSkinFX = v
+            local eng = getgenv().HW_RodSkin
+            if eng and eng.SetFX then pcall(eng.SetFX, v) end
+            pcall(SaveProfile)
+        end)
+
+    createToggleRow(beautyCard, "中鱼气场",
+        "小游戏期间环绕角色/竿的气场粒子（最容易糊屏，默认关）",
+        Config.RodSkinAura,
+        function(v)
+            Config.RodSkinAura = v
+            local eng = getgenv().HW_RodSkin
+            if eng and eng.SetAura then pcall(eng.SetAura, v) end
             pcall(SaveProfile)
         end)
 
@@ -9336,6 +10401,25 @@ local function installLocalItemsPage()
             --（「开着美化钓一会儿就闪退」的嫌疑之一）。现在页面关着 = 一个都不存在。
             if okCfg and type(cfg) == "table" and cfg.Model then
                 previewJobs[#previewJobs + 1] = { cell = cell, cfg = cfg }
+            else
+                -- 模型拿不到（PC 端没下发 / StreamingEnabled / require 失败）时，
+                -- 用稀有度色块 + 中文名前两字占位，不留一整格空白
+                local ph = Instance.new("Frame")
+                ph.Size = UDim2.new(1, -8, 0, 50)
+                ph.Position = UDim2.new(0, 4, 0, 4)
+                ph.BackgroundColor3 = RAR_COLOR[rar] or RAR_COLOR.Common
+                ph.BackgroundTransparency = 0.35
+                ph.BorderSizePixel = 0
+                ph.Parent = cell
+                Instance.new("UICorner", ph).CornerRadius = UDim.new(0, 5)
+                local big = Instance.new("TextLabel")
+                big.Size = UDim2.fromScale(1, 1)
+                big.BackgroundTransparency = 1
+                big.Font = Enum.Font.GothamBold
+                big.TextScaled = true
+                big.TextColor3 = Color3.new(1, 1, 1)
+                big.Text = string.sub(cn or name, 1, 2)
+                big.Parent = ph
             end
 
             local bar = Instance.new("Frame")
@@ -9707,11 +10791,87 @@ local function installRodSkinBeauty()
     local function setAura(on)
     	local aura = state.aura
     	if not aura then return end
+    	-- 气场开关（默认关）：一键叠 15 个粒子，最常见的就是"糊成一片看不清竿子"
+    	if not Config.RodSkinAura then on = false end
     	if state.auraOn == on then return end
     	state.auraOn = on
     	for _, d in ipairs(aura:GetDescendants()) do
     		if d:IsA("ParticleEmitter") then pcall(function() d.Enabled = on end) end
     	end
+    end
+
+    -- 皮肤自带粒子默认是常开的（实测这套皮肤 14 个，Lightning rate=100 之类），
+    -- 全挂身上会糊成一片，把竿子和技能特效都盖住。
+    -- 默认关掉常驻，只保留脚本自己 Emit 的爆发（甩竿 / 中鱼那一下）。
+    local function applyEmitterState(on)
+    	for _, pe in ipairs(state.emitters or {}) do
+    		if not (state.aura and pe:IsDescendantOf(state.aura)) then
+    			pcall(function() pe.Enabled = on and true or false end)
+    		end
+    	end
+    	for _, l in ipairs(state.lights or {}) do
+    		if not (state.aura and l:IsDescendantOf(state.aura)) then
+    			pcall(function() l.Enabled = on and true or false end)
+    		end
+    	end
+    end
+
+    ------------------------------------------------------------
+    -- 钓线美化：游戏把钓线画成「鱼的浮标下面一条 Beam」，另一端挂在真竿竿尖上。
+    -- 真竿被藏起来之后，线就吊在「原竿的位置」，而且样式还是游戏原版的灰线。
+    -- 这里把靠竿那一端改挂到皮肤竿尖，并把皮肤自带的线样式复制过去。
+    ------------------------------------------------------------
+    local function getSkinLineSource()
+        if state.lineSrc and state.lineSrc.Parent then return state.lineSrc end
+        local m = state.model
+        if not m then return nil end
+        for _, d in ipairs(m:GetDescendants()) do
+            if d:IsA("Beam") and d.Parent and d.Parent.Name == "Attachment" then
+                state.lineSrc = d
+                return d
+            end
+        end
+        return nil
+    end
+
+    local function applyLineLook(beam)
+        local src = getSkinLineSource()
+        if not src or src == beam then return end
+        pcall(function()
+            beam.Texture = src.Texture
+            beam.TextureLength = src.TextureLength
+            beam.TextureMode = src.TextureMode
+            beam.Color = src.Color
+            beam.Width0 = src.Width0
+            beam.Width1 = src.Width1
+            beam.LightEmission = src.LightEmission
+            beam.LightInfluence = src.LightInfluence
+            beam.Transparency = src.Transparency
+        end)
+    end
+
+    local function fixOneLine(beam)
+        local tip = state.tipAtt
+        local tl = state.tool
+        if not (tip and tip.Parent and tl) then return end
+        local changed = false
+        for _, prop in ipairs({ "Attachment0", "Attachment1" }) do
+            local att = beam[prop]
+            if att and att ~= tip and att:IsDescendantOf(tl) then
+                state.lineOrigin = state.lineOrigin or {}
+                state.lineOrigin[#state.lineOrigin + 1] = { beam = beam, prop = prop, att = att }
+                pcall(function() beam[prop] = tip end)
+                changed = true
+            end
+        end
+        if changed then applyLineLook(beam) end
+    end
+
+    local function watchLines(d)
+        if not d:IsA("Beam") then return end
+        task.defer(function()
+            if state.tipAtt and d.Parent then pcall(fixOneLine, d) end
+        end)
     end
 
     local function unhide()
@@ -9727,13 +10887,21 @@ local function installRodSkinBeauty()
     	if state.joint then state.joint:Destroy(); state.joint = nil end
     	if state.model then state.model:Destroy(); state.model = nil end
     	if state.hideConn then pcall(function() state.hideConn:Disconnect() end); state.hideConn = nil end
+    	if state.lineConn then pcall(function() state.lineConn:Disconnect() end); state.lineConn = nil end
+    	for _, rec in ipairs(state.lineOrigin or {}) do
+    		if rec.beam and rec.beam.Parent and rec.att then
+    			pcall(function() rec.beam[rec.prop] = rec.att end)
+    		end
+    	end
+    	state.lineOrigin = {}
+    	state.lineSrc = nil
     	if state.colorConn then pcall(function() state.colorConn:Disconnect() end); state.colorConn = nil end
     	if state.animConn then pcall(function() state.animConn:Disconnect() end); state.animConn = nil end
     	if state.specialTrack then pcall(function() state.specialTrack:Stop(0) end); state.specialTrack = nil end
     	state.smRoot, state.smRel = nil, nil
     	state.skinCfg, state.skinColor, state.colorRaw, state.colorNext, state.nativeColor = nil, nil, nil, nil, nil
     	state.handle, state.tool = nil, nil
-    	state.emitters, state.lights = nil, nil
+    	state.emitters, state.lights, state.auraEmitters = nil, nil, nil
     	state.sound, state.aura, state.tipAtt = nil, nil, nil
     	state.wasCast, state.wasMinigame = nil, nil
     	state.swingStart, state.burstDone = nil, nil
@@ -9912,26 +11080,25 @@ local function installRodSkinBeauty()
     	-- 隐藏真竿：只藏"竿身"，特效件留着（钓到鱼的特效就靠它们）
     	-- 只在生成时记录一次"竿身部件名"，之后只隐藏同名的部件。
     	-- 这样钓到鱼才亮起来的特效件（名字不同）不会被误伤。
-    	local hideNames = {}
-    	for _, d in ipairs(tool:GetDescendants()) do
-    		if d:IsA("BasePart") and d.Transparency < 1 and not looksLikeVFX(d) then
-    			hideNames[d.Name] = true
-    		end
-    	end
-
+    	-- 「原本的特效鱼竿」全删：真竿身上所有非特效部件都压成透明（含技能时游戏
+    	-- 临时摆出来的竿身/竿影/断竿），只留带粒子/Beam/Trail 的特效件。
+    	-- 之前只按"生成时可见的部件名"隐藏，换竿/技能新生成的名字对不上就漏出来，
+    	-- 所以现在是"凡是竿身上的实体部件一律藏"，新出现的一律补藏。
     	local function hideOne(d)
     		if not d:IsA("BasePart") then return end
-    		if not hideNames[d.Name] then return end
-    		if d.Transparency >= 1 then return end
+    		if looksLikeVFX(d) then return end
     		if state.hidden[d] == nil then
     			state.hidden[d] = d.LocalTransparencyModifier
     		end
-    		d.LocalTransparencyModifier = 1
+    		if d.LocalTransparencyModifier ~= 1 then
+    			pcall(function() d.LocalTransparencyModifier = 1 end)
+    		end
     		if not d:GetAttribute("__RodSkinWatch") then
     			d:SetAttribute("__RodSkinWatch", true)
     			d:GetPropertyChangedSignal("Transparency"):Connect(function()
-    				if d.Parent and hideNames[d.Name] and d.Transparency < 1 then
-    					d.LocalTransparencyModifier = 1
+    				-- 游戏在技能/抛竿时会把它改回可见，这里再压回去
+    				if d.Parent and state.tool and d:IsDescendantOf(state.tool) and not looksLikeVFX(d) then
+    					pcall(function() d.LocalTransparencyModifier = 1 end)
     				end
     			end)
     		end
@@ -9945,6 +11112,15 @@ local function installRodSkinBeauty()
     	-- 钓线从皮肤自己的竿尖出发
     	local rj = model:FindFirstChild("RopeJoint")
     	state.tipAtt = rj and rj:FindFirstChild("Attachment") or nil
+
+    	-- 把游戏的钓线（鱼浮标下那条 Beam）挂到皮肤竿尖，并套上皮肤的线样式
+    	if state.lineConn then pcall(function() state.lineConn:Disconnect() end) end
+    	state.lineConn = Workspace.DescendantAdded:Connect(watchLines)
+    	if state.tipAtt then
+    		for _, d in ipairs(Workspace:GetDescendants()) do
+    			if d:IsA("Beam") then pcall(fixOneLine, d) end
+    		end
+    	end
 
     	-- 专属特效件（音效 + 粒子）
     	local slashSrc = af and af:FindFirstChild("Slash")
@@ -9977,12 +11153,15 @@ local function installRodSkinBeauty()
     		end
     	end
 
-    	local emitters, lights = {}, {}
+    	local emitters, lights, auraEmitters = {}, {}, {}
     	for _, d in ipairs(model:GetDescendants()) do
-    		if d:IsA("ParticleEmitter") then emitters[#emitters+1] = d
+    		if d:IsA("ParticleEmitter") then
+    			emitters[#emitters+1] = d
+    			if state.aura and d:IsDescendantOf(state.aura) then auraEmitters[#auraEmitters+1] = d end
     		elseif d:IsA("Light") then lights[#lights+1] = d end
     	end
-    	state.emitters, state.lights = emitters, lights
+    	state.emitters, state.lights, state.auraEmitters = emitters, lights, auraEmitters
+    	applyEmitterState(Config.RodSkinFX)
 
     	return true
     end
@@ -10439,6 +11618,16 @@ local function installRodSkinBeauty()
 
     getgenv().HW_RodSkin = {
         Enable = function(v) if v then Start() else Stop() end end,
+        -- 皮肤粒子总开关（true = 恢复皮肤自带的常驻闪电/星光）
+        SetFX = function(on)
+            Config.RodSkinFX = on and true or false
+            applyEmitterState(Config.RodSkinFX)
+        end,
+        -- 中鱼气场开关
+        SetAura = function(on)
+            Config.RodSkinAura = on and true or false
+            if not Config.RodSkinAura then setAura(false) end
+        end,
         Set = set,
         List = listSkins,
         Info = getConfig,
@@ -10468,8 +11657,379 @@ local function installRodSkinBeauty()
 
     if Config.RodSkinBeauty then Start() end
 end
-installRodSkinBeauty()
-installLocalItemsPage()
+
+-- ============================================================
+-- 商店通行证：本地显示「已拥有」
+-- ------------------------------------------------------------
+-- 原理：游戏自己的 ClientModule.Gamepass 会读 Data[UserId].Gamepass[<通行证id>]
+-- 这个 BoolValue，然后把它渲染成 Owned / 价格，并在这个值变化时立刻重绘。
+-- 我们只是把这个布尔值在「本地」改成 true，游戏自己就会把界面刷成「已拥有」。
+--
+-- ⚠️ 纯显示：
+--   · 客户端改这个值不会同步到服务器；
+--   · 没有任何通行证真的被解锁（奖励/权限/付费区域全部由服务端判定，照样进不去）；
+--   · 关掉开关会恢复成原来的真实值。
+-- ============================================================
+do
+    local ShopOwnedOrig = {}
+
+    local function meData()
+        local rs = game:GetService("ReplicatedStorage")
+        local data = rs:FindFirstChild("Data")
+        return data and data:FindFirstChild(tostring(LocalPlayer.UserId))
+    end
+
+    local function applyShopOwned(on)
+        local me = meData()
+        local gp = me and me:FindFirstChild("Gamepass")
+        if not gp then return end
+        for _, v in ipairs(gp:GetChildren()) do
+            if v:IsA("BoolValue") then
+                if on then
+                    if ShopOwnedOrig[v.Name] == nil then ShopOwnedOrig[v.Name] = v.Value end
+                    if v.Value ~= true then
+                        pcall(function() v.Value = true end)
+                    end
+                else
+                    local orig = ShopOwnedOrig[v.Name]
+                    if orig ~= nil and v.Value ~= orig then
+                        pcall(function() v.Value = orig end)
+                    end
+                end
+            end
+        end
+    end
+    getgenv().HW_ShopOwned = applyShopOwned
+
+    table.insert(activeConnections, task.spawn(function()
+        while isRunning do
+            pcall(function()
+                if Config.ShopShowOwned then
+                    applyShopOwned(true)
+                end
+            end)
+            task.wait(2)
+        end
+    end))
+
+    if Config.ShopShowOwned then applyShopOwned(true) end
+end
+-- ============================================================
+-- 🎁 兑换码：一键兑换（只兑换没兑换过的）
+--   协议：ReplicatedStorage.Events.RedeemCode:FireServer(码)
+--   状态：ReplicatedStorage.Data[UserId].Code.<码> (BoolValue, true=已兑换)
+--   回执：Events.Notification（already redeemed / doesn't exist / You need ...）
+--   只读游戏数据，不改写 Code 标记；结果写本地缓存 + 日志
+-- ============================================================
+getgenv().HW_Redeem = getgenv().HW_Redeem or {}
+do
+    local R = getgenv().HW_Redeem
+
+    local function RedeemFile(name) return tostring(HW_BASE) .. "/" .. tostring(name) end
+    R.cacheFile = RedeemFile("HW_RedeemCodes.json")
+    R.logFile   = RedeemFile("HW_RedeemLog.txt")
+    R.busy      = false
+    R.cache     = {}
+
+    -- 兜底码表：Code 文件夹尚未同步时使用（正常情况以游戏内 Code 文件夹为准）
+    R.fallback = {
+        "Welcome", "AXO", "SON", "90KLikes", "WeeklyUPD4",
+        "Balancegugugaga", "HWF", "80MVisits", "Baits", "Riku",
+    }
+
+    R.Log = function(line)
+        pcall(function()
+            if type(readfile) ~= "function" or type(writefile) ~= "function" then return end
+            local old = ""
+            local ok, data = pcall(readfile, R.logFile)
+            if ok and type(data) == "string" then old = data end
+            if #old > 12000 then old = old:sub(-6000) end
+            writefile(R.logFile, old .. "[" .. os.date("%m-%d %H:%M:%S") .. "] " .. tostring(line) .. "\n")
+        end)
+    end
+
+    R.LoadCache = function()
+        pcall(function()
+            if type(readfile) ~= "function" then return end
+            local ok, raw = pcall(readfile, R.cacheFile)
+            if ok and type(raw) == "string" and #raw > 1 then
+                local okJ, obj = pcall(function() return HttpService:JSONDecode(raw) end)
+                if okJ and type(obj) == "table" then R.cache = obj end
+            end
+        end)
+    end
+
+    R.SaveCache = function()
+        pcall(function()
+            if type(writefile) ~= "function" then return end
+            writefile(R.cacheFile, HttpService:JSONEncode(R.cache))
+        end)
+    end
+
+    R.GetData = function()
+        local rs = game:GetService("ReplicatedStorage")
+        local d = rs and rs:FindFirstChild("Data")
+        local lp = game:GetService("Players").LocalPlayer
+        return d and lp and d:FindFirstChild(tostring(lp.UserId))
+    end
+
+    R.GetCodeFolder = function()
+        local me = R.GetData()
+        return me and me:FindFirstChild("Code")
+    end
+
+    -- 收集全部码；value = 游戏内 BoolValue（true 表示已兑换过）
+    R.Collect = function()
+        local list, seen = {}, {}
+        local cf = R.GetCodeFolder()
+        if cf then
+            for _, v in ipairs(cf:GetChildren()) do
+                if v:IsA("BoolValue") then
+                    seen[v.Name] = true
+                    list[#list + 1] = { name = v.Name, value = v }
+                end
+            end
+        end
+        for _, name in ipairs(R.fallback) do
+            if not seen[name] then
+                local b = cf and cf:FindFirstChild(name)
+                list[#list + 1] = { name = name, value = (b and b:IsA("BoolValue")) and b or nil }
+            end
+        end
+        return list
+    end
+
+    -- 无关通知（挂机/存档之类）不参与判定
+    R.IsNoise = function(s)
+        return s:find("rejoin", 1, true) ~= nil
+            or s:find("afk", 1, true) ~= nil
+            or s:find("saving", 1, true) ~= nil
+            or s:find("data saved", 1, true) ~= nil
+    end
+
+    -- 回执分类（纯函数，便于自测）
+    R.Classify = function(flipStable, msg)
+        local low = (msg or ""):lower()
+        if flipStable then return "ok" end
+        if low:find("already redeemed", 1, true) or low:find("already used", 1, true) then return "used" end
+        if low:find("doesn't exist", 1, true) or low:find("does not exist", 1, true) or low:find("invalid", 1, true) then return "invalid" end
+        if low:find("success", 1, true) or low:find("congrat", 1, true) or low:find("you got", 1, true)
+            or low:find("claimed", 1, true) or low:find("received", 1, true) then return "ok" end
+        if low:find("level", 1, true) or low:find("need", 1, true) or low:find("require", 1, true) then return "need" end
+        return "unknown"
+    end
+
+    -- 服务器回执汉化：游戏只回英文，这里翻成中文再弹通知
+    R.CnText = function(s)
+        local raw = tostring(s or "")
+        if raw == "" then return "" end
+        local low = raw:lower()
+        if low:find("already redeemed", 1, true) or low:find("already used", 1, true) then
+            return "你已经兑换过这个码了"
+        end
+        if low:find("doesn't exist", 1, true) or low:find("does not exist", 1, true) or low:find("invalid", 1, true) then
+            return "这个兑换码不存在"
+        end
+        local lv = low:match("level%s*(%d+)") or low:match("(%d+)%s*more%s*levels?")
+        if lv then
+            return "需要达到等级 " .. lv
+        end
+        if low:find("rng", 1, true) and low:find("roll", 1, true) then
+            return "需要在 Axo's RNG 里抽到指定次数"
+        end
+        if low:find("success", 1, true) or low:find("congrat", 1, true) or low:find("you got", 1, true)
+            or low:find("claimed", 1, true) or low:find("received", 1, true) then
+            return "兑换成功"
+        end
+        if low:find("level", 1, true) or low:find("need", 1, true) or low:find("require", 1, true) then
+            return "条件未满足：" .. raw
+        end
+        if low:find("rejoin", 1, true) then return "需要重新加入服务器" end
+        if low:find("afk", 1, true) then return "挂机提示（与兑换无关）" end
+        if low:find("sav", 1, true) then return "存档提示（与兑换无关）" end
+        return raw
+    end
+
+    -- Lua 运行错误汉化：脚本抛的 err 都是英文，转一下
+    R.CnErr = function(s)
+        local t = tostring(s or "")
+        t = t:gsub("attempt to index nil with '([^']*)'", "访问了空对象的字段 '%1'")
+        t = t:gsub('attempt to index nil with "([^"]*)"', "访问了空对象的字段 '%1'")
+        t = t:gsub("attempt to index a nil value", "访问了空对象")
+        t = t:gsub("attempt to call a nil value", "调用了一个不存在的函数")
+        t = t:gsub("attempt to perform arithmetic", "对非数字执行了运算")
+        t = t:gsub("is not a valid member of", "不是该对象的有效成员：")
+        t = t:gsub("HTTP (\d+)", "网络请求失败（HTTP %1）")
+        t = t:gsub("HttpError", "网络错误")
+        t = t:gsub("Tried to reconnect", "尝试重新连接")
+        t = t:gsub("timed out", "请求超时")
+        t = t:gsub("Argument (\d+) missing or nil", "第 %1 个参数缺失或为空")
+        t = t:gsub("table index is nil", "表的索引为空")
+        t = t:gsub("stack overflow", "递归过深（栈溢出）")
+        return t
+    end
+
+    R.DoRun = function(ev)
+        local Notify = ShowNotification or function() end
+        local codes = R.Collect()
+
+        local pending, already = {}, 0
+        for _, c in ipairs(codes) do
+            local rec = R.cache[c.name]
+            local knownUsed = (c.value and c.value.Value == true)
+                or (type(rec) == "table" and rec.status == "used")
+            if knownUsed then
+                already = already + 1
+            else
+                pending[#pending + 1] = c
+            end
+        end
+
+        R.Log(string.format("=== 开始兑换：未兑换 %d 个 / 已兑换 %d 个 ===", #pending, already))
+
+        if #pending == 0 then
+            R.Log("没有未兑换的码（已兑换 " .. tostring(already) .. " 个）")
+            Notify("兑换码", "没有未兑换的码（已全部兑换过）", "INFO", 4)
+            return
+        end
+
+        R.Log("开始兑换 " .. tostring(#pending) .. " 个未兑换码")
+
+        local buf = {}
+        local conn = Events.Notification.OnClientEvent:Connect(function(msg)
+            buf[#buf + 1] = tostring(msg)
+        end)
+
+        local okList, usedList, needList, badList, unknownList = {}, {}, {}, {}, {}
+
+        for i = 1, #pending do
+            local c = pending[i]
+            buf = {}
+
+            local bv = c.value
+            if bv and not bv.Parent then bv = nil end
+
+            pcall(function() ev:FireServer(c.name) end)
+
+            -- 判定说明：
+            --   服务器对「条件不满足」的码会先把标记置 true，约 0.15s 后再回滚 false。
+            --   所以「瞬时翻转」不能算成功，必须持续 1 秒以上；同时等服务器文字回执。
+            local t0 = os.clock()
+            local msgAt = nil
+            local flipStable = false
+            local trueSince = nil
+
+            while os.clock() - t0 < 3.2 do
+                task.wait(0.06)
+
+                if bv then
+                    if bv.Value == true then
+                        if not trueSince then trueSince = os.clock() end
+                        if os.clock() - trueSince >= 1.0 then flipStable = true break end
+                    else
+                        trueSince = nil
+                    end
+                end
+
+                local j = 1
+                while j <= #buf do
+                    if R.IsNoise(buf[j]:lower()) then
+                        table.remove(buf, j)
+                    else
+                        j = j + 1
+                    end
+                end
+                if #buf > 0 and not msgAt then msgAt = os.clock() end
+                if msgAt and (os.clock() - msgAt >= 0.8) then break end
+            end
+
+            local msg = table.concat(buf, " ")
+            local status = R.Classify(flipStable, msg)
+
+            if status == "ok" then
+                okList[#okList + 1] = c.name
+                Notify("兑换码", "[成功] " .. c.name, "SUCCESS", 4)
+            elseif status == "used" then
+                usedList[#usedList + 1] = c.name
+                Notify("兑换码", "[跳过] " .. c.name .. " 已经兑换过", "WARN", 2.5)
+            elseif status == "need" then
+                needList[#needList + 1] = c.name
+                Notify("兑换码", "[条件] " .. c.name .. "：" .. ((msg ~= "") and R.CnText(msg) or "未满足兑换条件"), "WARN", 4.5)
+            elseif status == "invalid" then
+                badList[#badList + 1] = c.name
+                Notify("兑换码", "[无效] " .. c.name .. "（服务器说这个码不存在）", "ERROR", 3)
+            else
+                unknownList[#unknownList + 1] = c.name
+                Notify("兑换码", "[未知] " .. c.name .. ((msg ~= "") and ("：" .. R.CnText(msg)) or "（服务器没有回执）"), "WARN", 4)
+            end
+
+            R.cache[c.name] = {
+                status = status,
+                time = os.time(),
+                msg = (msg ~= "" and #msg <= 300) and msg or nil,
+            }
+            local statusCn = ({
+                ok = "成功", used = "已兑换", need = "条件未满足", invalid = "无效", unknown = "未知",
+            })[status] or status
+            R.Log(string.format("%-16s -> %s %.2fs 持续翻转=%s 回执=%s %s",
+                c.name, statusCn, os.clock() - t0, tostring(flipStable),
+                msgAt and string.format("%.2fs", msgAt - t0) or "-", R.CnText(msg)))
+
+            task.wait(0.35)
+        end
+
+        if conn then conn:Disconnect() end
+        R.SaveCache()
+
+        -- 不再弹总结：失败项已经逐个提示过，这里只写日志
+
+        R.Log(string.format("结果：成功 %d ｜ 已兑换 %d ｜ 失败 %d（条件 %d / 无效 %d / 未知 %d）",
+            #okList, #usedList, #needList + #badList + #unknownList, #needList, #badList, #unknownList))
+    end
+
+    R.Run = function()
+        if R.busy then
+            ShowNotification("兑换码", "正在兑换中，请稍候…", "WARN", 3)
+            return
+        end
+        local ev = Events and Events:FindFirstChild("RedeemCode")
+        if not ev then
+            ShowNotification("兑换码", "没找到 RedeemCode 事件，无法兑换。", "ERROR", 6)
+            return
+        end
+        R.busy = true
+        task.spawn(function()
+            local ok, err = pcall(R.DoRun, ev)
+            R.busy = false
+            if not ok then
+                ShowNotification("兑换码", "兑换出错：" .. R.CnErr(err), "ERROR", 8)
+                R.Log("错误: " .. R.CnErr(err))
+            end
+        end)
+    end
+
+    R.LoadCache()
+end
+
+-- 用 pcall 包住，出错也不至于把后面的固定条面板一起带走；错因会进控制台
+local okRodSkin, errRodSkin = pcall(installRodSkinBeauty)
+if not okRodSkin then
+    warn("[HW] 鱼竿美化引擎注册失败: " .. tostring(errRodSkin))
+end
+local okItems, errItems = pcall(installLocalItemsPage)
+if not okItems then
+    warn("[HW] 本地物品页构建失败: " .. tostring(errItems))
+end
+
+-- 美化固定条：等所有页面都建好后挂到「本地物品」页尾（LayoutOrder 900，永远排最后）
+pcall(function()
+    local pageBar = tabFrames and tabFrames["本地物品"]
+    local bs = getgenv().HW_BarSkin
+    if bs and pageBar and type(bs.BuildUI) == "function" then
+        local okB, errB = pcall(bs.BuildUI, { page = pageBar, order = 900, notify = ShowNotification, onSave = SaveProfile })
+        if not okB then warn("[HW] 固定条美化 UI 失败: " .. tostring(errB)) end
+    end
+end)
 
 -- 主 chunk 到这里才算真正跑完：允许挂钩子 / 标记载入完成
 if getgenv then getgenv().HW_LOADED = true end
