@@ -1883,7 +1883,7 @@ do
         card.LayoutOrder = baseOrder + 1
 
         createToggleRow(card, "美化固定条",
-            "只换小游戏固定条那条游走的线，底条和判定保持原样",
+            " ",
             BarSkin.Enabled, function(v)
                 BarSkin.SetEnabled(v)
                 if type(opt.onSave) == "function" then pcall(opt.onSave) end
