@@ -10207,7 +10207,7 @@ local function installLocalItemsPage()
         local card = createCardGroup(page)
 
         createButtonRow(card, "一键全物品",
-            "全物品（只能看不能用）",
+            "全物品 + 全称号一起（只能看不能用）",
             "应用", applyLocalItems)
 
         createButtonRow(card, "一键清理",
@@ -10220,7 +10220,7 @@ local function installLocalItemsPage()
     local beautyCard = createCardGroup(page)
 
     local beautyToggle = createToggleRow(beautyCard, "皮肤美化",
-        "把手里的鱼竿换成选中的皮肤模型（仅本地显示，别人看不见）",
+        "把手里的鱼竿换成选中的皮肤模型（含皮肤常驻粒子 + 中鱼气场；仅本地显示，别人看不见）",
         Config.RodSkinBeauty,
         function(v)
             Config.RodSkinBeauty = v
@@ -10766,16 +10766,29 @@ local function installRodSkinBeauty()
     end
 
     ------------------------------------------------------------
-    -- 皮肤自带粒子默认是常开的（实测这套皮肤 14 个，Lightning rate=100 之类），
-    -- 全挂身上会糊成一片，把竿子和技能特效都盖住。
-    -- v29：常驻粒子开关整个删掉，永久关常驻；只保留脚本自己 Emit 的爆发
-    -- （甩竿 / 中鱼那一下，ParticleEmitter:Emit 在 Enabled=false 时照样能喷）。
-    local function applyEmitterState()
+    -- 中鱼气场：不再单独给开关，跟着「皮肤美化」总开关走。
+    -- 进小游戏开、战斗一结束立刻关（原来会多留 2.5 秒）。
+    local function setAura(on)
+    	local aura = state.aura
+    	if not aura then return end
+    	if state.auraOn == on then return end
+    	state.auraOn = on
+    	for _, d in ipairs(aura:GetDescendants()) do
+    		if d:IsA("ParticleEmitter") then pcall(function() d.Enabled = on end) end
+    	end
+    end
+
+    -- 皮肤自带粒子/灯光：不再单独给开关，跟着「皮肤美化」总开关走（常驻开）。
+    local function applyEmitterState(on)
     	for _, pe in ipairs(state.emitters or {}) do
-    		pcall(function() pe.Enabled = false end)
+    		if not (state.aura and pe:IsDescendantOf(state.aura)) then
+    			pcall(function() pe.Enabled = on and true or false end)
+    		end
     	end
     	for _, l in ipairs(state.lights or {}) do
-    		pcall(function() l.Enabled = false end)
+    		if not (state.aura and l:IsDescendantOf(state.aura)) then
+    			pcall(function() l.Enabled = on and true or false end)
+    		end
     	end
     end
 
@@ -10905,8 +10918,8 @@ local function installRodSkinBeauty()
     	state.smRoot, state.smRel = nil, nil
     	state.skinCfg, state.skinColor, state.colorRaw, state.colorNext, state.nativeColor = nil, nil, nil, nil, nil
     	state.handle, state.tool = nil, nil
-    	state.emitters, state.lights = nil, nil
-    	state.sound, state.tipAtt = nil, nil
+    	state.emitters, state.lights, state.auraEmitters = nil, nil, nil
+    	state.sound, state.aura, state.tipAtt = nil, nil, nil
     	state.wasCast, state.wasMinigame = nil, nil
     	state.ext = nil
     	state.swingStart, state.burstDone = nil, nil
@@ -11012,6 +11025,32 @@ local function installRodSkinBeauty()
     						state.specialTrack = tr
     					end
     				end
+    			end
+    		end
+    	end
+
+    	-- 竿气场（RodAura）：跟着「皮肤美化」总开关走，中鱼小游戏期间才亮
+    	do
+    		local auraRoot = RS:FindFirstChild("RodAura")
+    		local aura = auraRoot and auraRoot:FindFirstChild(currentSkin)
+    		if aura then
+    			local ok, ac = pcall(function() return aura:Clone() end)
+    			if ok and ac then
+    				ac.Name = "__SkinAura"
+    				prepare(ac)
+    				-- 气场跟着"人"走，不挂竿上（挂竿上粒子会绕竿飘，很怪）
+    				local body = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+    				if ac:IsA("BasePart") and body then
+    					ac.Transparency = 1
+    					ac.CFrame = body.CFrame
+    					local w = Instance.new("WeldConstraint")
+    					w.Part0, w.Part1, w.Parent = body, ac, ac
+    				end
+    				weldAll(ac, ac)
+    				ac.Parent = model
+    				state.aura = ac
+    				state.auraOn = nil
+    				setAura(false)   -- 默认不亮，中鱼时才开
     			end
     		end
     	end
@@ -11174,14 +11213,15 @@ local function installRodSkinBeauty()
     		end
     	end
 
-    	local emitters, lights = {}, {}
+    	local emitters, lights, auraEmitters = {}, {}, {}
     	for _, d in ipairs(model:GetDescendants()) do
     		if d:IsA("ParticleEmitter") then
     			emitters[#emitters+1] = d
+    			if state.aura and d:IsDescendantOf(state.aura) then auraEmitters[#auraEmitters+1] = d end
     		elseif d:IsA("Light") then lights[#lights+1] = d end
     	end
-    	state.emitters, state.lights = emitters, lights
-    	applyEmitterState()
+    	state.emitters, state.lights, state.auraEmitters = emitters, lights, auraEmitters
+    	applyEmitterState(true)
 
     	return true
     end
@@ -11253,10 +11293,10 @@ local function installRodSkinBeauty()
                 or decodeColorString(savedColorString(currentSkin)) or cfg.Color
             if c then pcall(paint, copy, c) end
         end
-        -- 皮肤自带粒子跟主竿一样永久关常驻，免得技能瞬间糊成一片
+        -- 皮肤自带粒子和主竿保持一致：常驻开（跟着皮肤美化总开关）
         for _, d in ipairs(copy:GetDescendants()) do
             if d:IsA("ParticleEmitter") or d:IsA("Light") then
-                pcall(function() d.Enabled = false end)
+                pcall(function() d.Enabled = true end)
             end
         end
         return copy
@@ -11660,6 +11700,14 @@ local function installRodSkinBeauty()
     	local fishing = char:GetAttribute("Fishing") == true
     	local minigame = char:GetAttribute("Minigame") == true
     	local throwing = char:GetAttribute("CDForTheNextThrow") == true
+
+    	-- 气场：跟着皮肤美化，进小游戏亮、结束立刻关
+    	if minigame then
+    		state.auraUntil = now
+    		setAura(true)
+    	elseif now > (state.auraUntil or 0) then
+    		setAura(false)
+    	end
 
     	-- 中鱼结算：小游戏结束的瞬间放这套皮肤的粒子爆发 + 音效
     	if state.wasMinigame and not minigame then
