@@ -131,8 +131,6 @@ RhythmHumanizer = false, -- 真人模式 (10-35ms 随机反应延迟)
     BossDifficulty = "简单", -- Boss难度(简单/困难)  
     SelectedBoss = "Enzo", -- 选择的Boss
     RodSkinBeauty = false, -- 皮肤美化（鱼竿皮肤实体化）
-    RodSkinFX = false,     -- 皮肤常驻粒子（皮肤自带的闪电/星光，会糊住竿子，默认关）
-    RodSkinAura = false,   -- 中鱼气场（小游戏期间环绕角色的粒子环，默认关）
     ShopShowOwned = false, -- 商店通行证显示「已拥有」（默认关，点「一键全物品，全通行证」才开）
     RodSkinPick = "Starlight Rod", -- 选中的皮肤
     BarSkin = true, -- 美化固定条（只把那条游走的线换成照片）
@@ -2115,8 +2113,7 @@ do
 
     BarSkin.Scan()
     BarSkin._conn = RunService.RenderStepped:Connect(function()
-        local ok, err = pcall(update)
-        if not ok and G.HW_BarSkinDebug then warn("[BarSkin] " .. tostring(err)) end
+        pcall(update)
     end)
 
     G.HW_BarSkin = BarSkin
@@ -2407,10 +2404,6 @@ do
         comboState.lastCastTime = tick()
         comboState.lastActionTime = tick()
         comboState.lastCastingKey = key
-        -- 调试：getgenv().HW_COMBO_DEBUG = true 后，每次施放都会打进控制台（排查用，默认不打印）
-        if getgenv and getgenv().HW_COMBO_DEBUG then
-            print(string.format("[COMBO] cast %s hp=%.0f idx=%d t=%.3f", key, comboState.lastFishHp or -1, comboState.loopTargetIndex or -1, tick()))
-        end
         return true
     end
 
@@ -2661,9 +2654,6 @@ do
         if session ~= nil and session ~= comboState.lastSession then
             if comboState.lastSession ~= nil then
                 comboState.Reset()
-                if getgenv and getgenv().HW_COMBO_DEBUG then
-                    print(string.format("[COMBO] reset session=%s t=%.3f", tostring(session), tick()))
-                end
             end
             comboState.lastSession = session
         end
@@ -5541,7 +5531,6 @@ function ServerHop(avoidServers)
                 TeleportService:TeleportToPlaceInstance(placeId, chosen, LocalPlayer)
             end)
             if not ok then
-                warn("[ServerHop] TeleportToPlaceInstance 出错，切换到随机 Teleport：", tostring(err))
                 pcall(function() TeleportService:Teleport(placeId, LocalPlayer) end)
             end
         else
@@ -5653,9 +5642,6 @@ task.spawn(function()
                     ServerHop(HopState.npcHopVisited)
                 end
             end)
-            if not hopOk then
-                warn("[AutoServerHop] NPC 查找循环出错：", tostring(hopErr))
-            end
         end
     end
 end)
@@ -6031,9 +6017,6 @@ do
                     WeatherHop.lastHopAt = tick()
                     WeatherHop.StartHopOnce()
                 end)
-                if not loopOk then
-                    warn("[WeatherHop] 循环出错：", tostring(loopErr))
-                end
             end
         end
     end)
@@ -8186,8 +8169,7 @@ if Config.AutoGiveFishToDumbGuy
     lastGiveFishTime = now
     giveFishRunning = true
     task.spawn(function()
-        local ok, err = pcall(GiveFishOneRound)
-        if not ok then warn("[GiveFish] " .. tostring(err)) end
+        pcall(GiveFishOneRound) -- 出错不往控制台打
         giveFishRunning = false
     end)
 end
@@ -9956,7 +9938,7 @@ local function installLocalItemsPage()
         if not silent then
             ShowNotification("本地称号", ("已解锁 %d 个称号（含隐藏），去游戏称号页点 Select 即可换"):format(n), "SUCCESS", 5)
         end
-        return true
+        return n
     end
 
     local function clearLocalTitles()
@@ -10087,15 +10069,18 @@ local function installLocalItemsPage()
             end
         end
 
-        -- 顺带：本地全称号（含隐藏称号），并修好称号页卡住的 Ready 开关
-        pcall(function() applyLocalTitles(true) end)
+        -- 全称号一起做：解锁全部（含隐藏）、修好称号页卡住的 Ready 开关、
+        -- 并把称号页每一项的 Select 绑成本地装备。
+        local titleCount = 0
+        local okTitles, titleRes = pcall(applyLocalTitles, true)
+        if okTitles and type(titleRes) == "number" then titleCount = titleRes end
 
         -- 顺带把商店里的通行证全部刷成「已拥有」（纯本地显示，不解锁任何东西）
         Config.ShopShowOwned = true
         local shopFn = getgenv and getgenv().HW_ShopOwned
         if shopFn then pcall(shopFn, true) end
 
-        ShowNotification("本地物品", "已获得全物品（本地显示）", "SUCCESS", 4)
+        ShowNotification("本地物品", ("已获得全物品 + %d 个称号（本地显示）"):format(titleCount), "SUCCESS", 4)
         return true
     end
 
@@ -10222,16 +10207,13 @@ local function installLocalItemsPage()
         local card = createCardGroup(page)
 
         createButtonRow(card, "一键全物品",
-            "只能看不能用",
+            "全物品（只能看不能用）",
             "应用", applyLocalItems)
 
         createButtonRow(card, "一键清理",
             "把本地改过的鱼饵 / 技能 / 鱼竿 / 皮肤 / 角色 / 宝珠还原回去",
             "清理", clearLocalItems)
 
-        createButtonRow(card, "本地全称号",
-            "解锁 14 个称号（含隐藏），再去游戏内称号页点 Select 就能本地换上",
-            "应用", function() applyLocalTitles(false) end)
     -- ----- 皮肤美化（鱼竿皮肤实体化 + 预览格子）-----
     createCategoryHeader(page, "皮肤美化")
 
@@ -10244,26 +10226,6 @@ local function installLocalItemsPage()
             Config.RodSkinBeauty = v
             local eng = getgenv().HW_RodSkin
             if eng then pcall(eng.Enable, v) end
-            pcall(SaveProfile)
-        end)
-
-    createToggleRow(beautyCard, "皮肤常驻粒子",
-        "皮肤自带的闪电/星光（默认关：常驻会糊成一片，把竿子和技能特效盖住；关掉后甩竿/中鱼仍会爆一下）",
-        Config.RodSkinFX,
-        function(v)
-            Config.RodSkinFX = v
-            local eng = getgenv().HW_RodSkin
-            if eng and eng.SetFX then pcall(eng.SetFX, v) end
-            pcall(SaveProfile)
-        end)
-
-    createToggleRow(beautyCard, "中鱼气场",
-        "小游戏期间环绕角色/竿的气场粒子（最容易糊屏，默认关）",
-        Config.RodSkinAura,
-        function(v)
-            Config.RodSkinAura = v
-            local eng = getgenv().HW_RodSkin
-            if eng and eng.SetAura then pcall(eng.SetAura, v) end
             pcall(SaveProfile)
         end)
 
@@ -10546,7 +10508,7 @@ end
 -- ============================================================
 -- ============================================================
 -- 鱼竿皮肤「原装实体化」v11（内嵌版：只搬逻辑/原理，UI 用主脚本「皮肤美化」页）
--- 资源全部来自游戏：Model / Info.Skin / Animations / RodAura / Stick.SpecialModel
+-- 资源全部来自游戏：Model / Info.Skin / Animations / Stick.SpecialModel
 -- ============================================================
 local function installRodSkinBeauty()
     if game.PlaceId ~= 98502499119821 then return end
@@ -10570,7 +10532,9 @@ local function installRodSkinBeauty()
 
     local currentSkin = Config.RodSkinPick or "Cursed Lantern Rod"
 
-    local state = { tracks = {}, hidden = {}, hideSet = {} }
+    local state = { tracks = {}, hidden = {}, hideSet = {}, fxHidden = {}, texHidden = {}, skillRods = {} }
+    local watchSkillRods -- 提前声明：spawn 里要把技能竿监听补回来（定义在后面）
+    local watchWorldRods -- 同上：分身竿监听（workspace 里的克隆）
 
     -- 甩竿动作（脚本直接驱动，不依赖 Animator）
     local USE_SWING = false   -- 测试：先关掉脚本甩竿，看游戏自带动画动不动
@@ -10609,28 +10573,42 @@ local function installRodSkinBeauty()
     end
 
     -- 全部竿动画 ID（用来压掉"木竿"那套）
+    -- ⚠️ 只收「鱼竿/皮肤」目录。Animations.Character 是角色战斗动作
+    --    （Aerial / Block / 闪避 / 受击），技能和 PVP 也在播；
+    --    以前整棵树一把收，技能动作一播就被我们 Stop(0)，表现出来就是
+    --    "鱼竿美化不适配技能特效"。
     local ROD_ANIM = {}
     if ANIMS then
     	for _, f in ipairs(ANIMS:GetChildren()) do
-    		for _, a in ipairs(f:GetChildren()) do
-    			if a:IsA("Animation") then ROD_ANIM[a.AnimationId] = true end
+    		if f.Name ~= "Character" then
+    			for _, a in ipairs(f:GetChildren()) do
+    				if a:IsA("Animation") then ROD_ANIM[a.AnimationId] = true end
+    			end
     		end
     	end
     end
 
     ------------------------------------------------------------
-    local VFX_NAME = { vfx = true, effect = true, effects = true, fx = true, slash = true,
-    	circle = true, specs = true, spec = true, aura = true, glow = true, exp = true,
-    	wind = true, trace = true, spark = true, blink = true }
-
-    local function looksLikeVFX(d)
-    	local n = d.Name:lower()
-    	if VFX_NAME[n] then return true end
-    	if n:find("vfx") or n:find("slash") or n:find("effect") or n:find("specs") then return true end
-    	for _, c in ipairs(d:GetChildren()) do
-    		if c:IsA("ParticleEmitter") or c:IsA("Beam") or c:IsA("Trail") then return true end
+    -- 技能特效识别：游戏给每一份技能 VFX 打的标记（RodSkillVFX）。
+    -- 技能会把特效件直接挂到 Tool.Handle 上（例如 Phoenix Annihilation Art），
+    -- 这些是技能自己的东西，美化既不能藏、也不能关掉它们的粒子。
+    local function isSkillVFX(inst)
+    	local p = inst
+    	for _ = 1, 12 do
+    		if not p then return false end
+    		local ok, v = pcall(function() return p:GetAttribute("RodSkillVFX") end)
+    		if ok and v then return true end
+    		if p == state.tool or p == state.model then return false end
+    		p = p.Parent
     	end
     	return false
+    end
+
+    -- 可开关的特效件（粒子 / 拖尾 / 灯光 / 火焰类 / 贴图 GUI）
+    local function isToggleFx(d)
+    	return d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Light")
+    		or d:IsA("Fire") or d:IsA("Smoke") or d:IsA("Sparkles")
+    		or d:IsA("BillboardGui") or d:IsA("SurfaceGui")
     end
 
     local function prepare(model)
@@ -10788,31 +10766,16 @@ local function installRodSkinBeauty()
     end
 
     ------------------------------------------------------------
-    local function setAura(on)
-    	local aura = state.aura
-    	if not aura then return end
-    	-- 气场开关（默认关）：一键叠 15 个粒子，最常见的就是"糊成一片看不清竿子"
-    	if not Config.RodSkinAura then on = false end
-    	if state.auraOn == on then return end
-    	state.auraOn = on
-    	for _, d in ipairs(aura:GetDescendants()) do
-    		if d:IsA("ParticleEmitter") then pcall(function() d.Enabled = on end) end
-    	end
-    end
-
     -- 皮肤自带粒子默认是常开的（实测这套皮肤 14 个，Lightning rate=100 之类），
     -- 全挂身上会糊成一片，把竿子和技能特效都盖住。
-    -- 默认关掉常驻，只保留脚本自己 Emit 的爆发（甩竿 / 中鱼那一下）。
-    local function applyEmitterState(on)
+    -- v29：常驻粒子开关整个删掉，永久关常驻；只保留脚本自己 Emit 的爆发
+    -- （甩竿 / 中鱼那一下，ParticleEmitter:Emit 在 Enabled=false 时照样能喷）。
+    local function applyEmitterState()
     	for _, pe in ipairs(state.emitters or {}) do
-    		if not (state.aura and pe:IsDescendantOf(state.aura)) then
-    			pcall(function() pe.Enabled = on and true or false end)
-    		end
+    		pcall(function() pe.Enabled = false end)
     	end
     	for _, l in ipairs(state.lights or {}) do
-    		if not (state.aura and l:IsDescendantOf(state.aura)) then
-    			pcall(function() l.Enabled = on and true or false end)
-    		end
+    		pcall(function() l.Enabled = false end)
     	end
     end
 
@@ -10850,10 +10813,31 @@ local function installRodSkinBeauty()
         end)
     end
 
+    -- 只认「真钓线」：挂点必须挂在竿的 RopeJoint 上，或另一端在浮标 Buoy 上。
+    -- 以前凡是 Attachment0 在竿里的 Beam 全抢过来改成竿尖 —— 技能挂到 Handle 的
+    -- Beam（技能特效）也被一起抢走，表现就是技能特效位置全乱。
+    local function isLineBeam(beam)
+        if not (beam and beam:IsA("Beam")) then return false end
+        if isSkillVFX(beam) then return false end
+        local a0, a1 = beam.Attachment0, beam.Attachment1
+        local att = beam.Parent
+        local looksLine = (att and att:IsA("Attachment") and att.Parent and att.Parent.Name == "RopeJoint")
+            or (a1 and a1.Parent and a1.Parent.Name == "Buoy")
+        if not looksLine then return false end
+        -- 两端都还在竿里 = 竿自带的装饰线（不是钓线）：别抢它，
+        -- 否则会把两端都改到竿尖，变成一条挂在原位的废线。
+        local tl = state.tool
+        if tl and a0 and a1 and a0:IsDescendantOf(tl) and a1:IsDescendantOf(tl) then
+            return false
+        end
+        return true
+    end
+
     local function fixOneLine(beam)
         local tip = state.tipAtt
         local tl = state.tool
         if not (tip and tip.Parent and tl) then return end
+        if not isLineBeam(beam) then return end
         local changed = false
         for _, prop in ipairs({ "Attachment0", "Attachment1" }) do
             local att = beam[prop]
@@ -10869,6 +10853,7 @@ local function installRodSkinBeauty()
 
     local function watchLines(d)
         if not d:IsA("Beam") then return end
+        if isSkillVFX(d) then return end
         task.defer(function()
             if state.tipAtt and d.Parent then pcall(fixOneLine, d) end
         end)
@@ -10878,13 +10863,32 @@ local function installRodSkinBeauty()
     	for p, old in pairs(state.hidden) do
     		if p and p.Parent then pcall(function() p.LocalTransparencyModifier = old end) end
     	end
+    	for inst, old in pairs(state.fxHidden or {}) do
+    		if inst and inst.Parent then pcall(function() inst.Enabled = old end) end
+    	end
+    	for inst, old in pairs(state.texHidden or {}) do
+    		if inst and inst.Parent then pcall(function() inst.Transparency = old end) end
+    	end
     	state.hidden = {}
     	state.hideSet = {}
+    	state.fxHidden = {}
+    	state.texHidden = {}
     end
 
     local function despawn()
     	stopTracks()
     	if state.joint then state.joint:Destroy(); state.joint = nil end
+    	if state.skillConn then pcall(function() state.skillConn:Disconnect() end); state.skillConn = nil end
+    	if state.wsRodConn then pcall(function() state.wsRodConn:Disconnect() end); state.wsRodConn = nil end
+    	-- 技能竿克隆：随竿一起销毁我们复制的那份美化竿
+    	for rod, rec in pairs(state.skillRods or {}) do
+    		if rec and rec.joint then pcall(function() rec.joint:Destroy() end) end
+    		if rec and rec.model and rec.model.Parent then pcall(function() rec.model:Destroy() end) end
+    		state.skillRods[rod] = nil
+    	end
+    	state.skillRods = {}
+    	state.skillRodActive = nil
+    	state.skillHidden, state.skillFx = nil, nil
     	if state.model then state.model:Destroy(); state.model = nil end
     	if state.hideConn then pcall(function() state.hideConn:Disconnect() end); state.hideConn = nil end
     	if state.lineConn then pcall(function() state.lineConn:Disconnect() end); state.lineConn = nil end
@@ -10901,9 +10905,10 @@ local function installRodSkinBeauty()
     	state.smRoot, state.smRel = nil, nil
     	state.skinCfg, state.skinColor, state.colorRaw, state.colorNext, state.nativeColor = nil, nil, nil, nil, nil
     	state.handle, state.tool = nil, nil
-    	state.emitters, state.lights, state.auraEmitters = nil, nil, nil
-    	state.sound, state.aura, state.tipAtt = nil, nil, nil
+    	state.emitters, state.lights = nil, nil
+    	state.sound, state.tipAtt = nil, nil
     	state.wasCast, state.wasMinigame = nil, nil
+    	state.ext = nil
     	state.swingStart, state.burstDone = nil, nil
     	unhide()
     end
@@ -11011,32 +11016,6 @@ local function installRodSkinBeauty()
     		end
     	end
 
-    	-- 竿气场（RodAura）：每把竿都有一份，带 ray 粒子和技能特效件
-    	do
-    		local auraRoot = RS:FindFirstChild("RodAura")
-    		local aura = auraRoot and auraRoot:FindFirstChild(currentSkin)
-    		if aura then
-    			local ok, ac = pcall(function() return aura:Clone() end)
-    			if ok and ac then
-    				ac.Name = "__SkinAura"
-    				prepare(ac)
-    				-- 气场跟着"人"走，不挂竿上（挂竿上粒子会绕竿飘，很怪）
-    				local body = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
-    				if ac:IsA("BasePart") and body then
-    					ac.Transparency = 1
-    					ac.CFrame = body.CFrame
-    					local w = Instance.new("WeldConstraint")
-    					w.Part0, w.Part1, w.Parent = body, ac, ac
-    				end
-    				weldAll(ac, ac)
-    				ac.Parent = model
-    				state.aura = ac
-    				state.auraOn = nil
-    				setAura(false)   -- 默认不亮，中鱼时才开
-    			end
-    		end
-    	end
-
     	-- 这套皮肤的四段动画（Priority 用 Idle，和游戏原版一致）
     	local af = ANIMS and ANIMS:FindFirstChild(currentSkin)
     	local tracks, myIds = {}, {}
@@ -11062,6 +11041,9 @@ local function installRodSkinBeauty()
     	state.tracks, state.myIds = tracks, myIds
 
     	-- 压掉"木竿那套"，即时生效
+    	-- 另外：技能动画（RodSkillVFX.Anim）也是 Action4，优先级跟我们一样。
+    	-- 以前技能一放，我们 16Hz 的待机轨道立刻补回来，两条 Action4 各 50% 权重，
+    	-- 技能动作看着就是"抖 / 不像原版"。这里记下外部动作，tick 里主动让开。
     	if state.animConn then pcall(function() state.animConn:Disconnect() end) end
     	local hum2 = char:FindFirstChildOfClass("Humanoid")
     	local animator2 = hum2 and hum2:FindFirstChildOfClass("Animator")
@@ -11069,38 +11051,71 @@ local function installRodSkinBeauty()
     		state.animConn = animator2.AnimationPlayed:Connect(function(track)
     			if not isOwner(char) then return end
     			local ok, id = pcall(function() return track.Animation and track.Animation.AnimationId end)
-    			if ok and id and ROD_ANIM[id] and not (state.myIds and state.myIds[id]) then
+    			if not (ok and id) then return end
+    			if ROD_ANIM[id] and not (state.myIds and state.myIds[id]) then
     				pcall(function() track:Stop(0) end)
+    				return
+    			end
+    			if not (state.myIds and state.myIds[id]) then
+    				-- 只管游戏数据里的动作（技能/战斗）；角色自带 Animate 脚本的
+    				-- 待机/跑动也会走 AnimationPlayed，那些不能算"外部动作"
+    				local animObj = track.Animation
+    				local internal = false
+    				if animObj then
+    					local ok2, res = pcall(function() return animObj:IsDescendantOf(char) end)
+    					internal = ok2 and res
+    				end
+    				if internal then return end
+    				state.ext = state.ext or {}
+    				if not state.ext[track] then
+    					state.ext[track] = os.clock()
+    					local function fin()
+    						if state.ext then state.ext[track] = nil end
+    					end
+    					pcall(function() track.Stopped:Connect(fin) end)
+    					pcall(function() track.Destroying:Connect(fin) end)
+    				end
     			end
     		end)
     	end
 
     	playMode("Idle", true, 0)
 
-    	-- 隐藏真竿：只藏"竿身"，特效件留着（钓到鱼的特效就靠它们）
-    	-- 只在生成时记录一次"竿身部件名"，之后只隐藏同名的部件。
-    	-- 这样钓到鱼才亮起来的特效件（名字不同）不会被误伤。
-    	-- 「原本的特效鱼竿」全删：真竿身上所有非特效部件都压成透明（含技能时游戏
-    	-- 临时摆出来的竿身/竿影/断竿），只留带粒子/Beam/Trail 的特效件。
-    	-- 之前只按"生成时可见的部件名"隐藏，换竿/技能新生成的名字对不上就漏出来，
-    	-- 所以现在是"凡是竿身上的实体部件一律藏"，新出现的一律补藏。
+    	-- 隐藏真竿：竿身 + 原竿自带的整套特效件全部压掉/关掉。
+    	-- 以前「带粒子的部件留着」（注释说是给钓到鱼的特效用），结果是原竿的
+    	-- VFX / 闪电 / 星光 / 装饰 Beam 全悬在皮肤竿的位置继续发光
+    	-- —— 就是用户说的「原本装的杆子特效都还在」。
+    	-- 现在只保留两样：
+    	--   1) 钓线（RopeJoint 上那条 Beam，fixOneLine 还要把它挂到竿尖）
+    	--   2) 技能自己的特效件（带 RodSkillVFX 标记，见 isSkillVFX）
     	local function hideOne(d)
-    		if not d:IsA("BasePart") then return end
-    		if looksLikeVFX(d) then return end
-    		if state.hidden[d] == nil then
-    			state.hidden[d] = d.LocalTransparencyModifier
-    		end
-    		if d.LocalTransparencyModifier ~= 1 then
-    			pcall(function() d.LocalTransparencyModifier = 1 end)
-    		end
-    		if not d:GetAttribute("__RodSkinWatch") then
-    			d:SetAttribute("__RodSkinWatch", true)
-    			d:GetPropertyChangedSignal("Transparency"):Connect(function()
-    				-- 游戏在技能/抛竿时会把它改回可见，这里再压回去
-    				if d.Parent and state.tool and d:IsDescendantOf(state.tool) and not looksLikeVFX(d) then
-    					pcall(function() d.LocalTransparencyModifier = 1 end)
-    				end
-    			end)
+    		if isSkillVFX(d) then return end
+    		if d:IsA("BasePart") then
+    			if state.hidden[d] == nil then
+    				state.hidden[d] = d.LocalTransparencyModifier
+    			end
+    			if d.LocalTransparencyModifier ~= 1 then
+    				pcall(function() d.LocalTransparencyModifier = 1 end)
+    			end
+    			if not d:GetAttribute("__RodSkinWatch") then
+    				d:SetAttribute("__RodSkinWatch", true)
+    				d:GetPropertyChangedSignal("Transparency"):Connect(function()
+    					-- 游戏在技能/抛竿时会把它改回可见，这里再压回去
+    					if d.Parent and state.tool and d:IsDescendantOf(state.tool) and not isSkillVFX(d) then
+    						pcall(function() d.LocalTransparencyModifier = 1 end)
+    					end
+    				end)
+    			end
+    		elseif d:IsA("Beam") then
+    			if isLineBeam(d) then return end
+    			if state.fxHidden[d] == nil then state.fxHidden[d] = d.Enabled end
+    			if d.Enabled then pcall(function() d.Enabled = false end) end
+    		elseif d:IsA("Decal") or d:IsA("Texture") then
+    			if state.texHidden[d] == nil then state.texHidden[d] = d.Transparency end
+    			if d.Transparency < 1 then pcall(function() d.Transparency = 1 end) end
+    		elseif isToggleFx(d) then
+    			if state.fxHidden[d] == nil then state.fxHidden[d] = d.Enabled end
+    			if d.Enabled then pcall(function() d.Enabled = false end) end
     		end
     	end
 
@@ -11108,6 +11123,12 @@ local function installRodSkinBeauty()
     	state.tool = tool
     	for _, d in ipairs(tool:GetDescendants()) do hideOne(d) end
     	state.hideConn = tool.DescendantAdded:Connect(hideOne)
+    	-- spawn 开头的 despawn() 会把 onChar 挂的技能竿监听断开，这里补回来；
+    	-- 不补的话「克隆整根竿」的技能永远等不到美化适配。
+    	if state.char == char and not state.skillConn then
+    		pcall(watchSkillRods, char)
+    	end
+    	pcall(watchWorldRods)
 
     	-- 钓线从皮肤自己的竿尖出发
     	local rj = model:FindFirstChild("RopeJoint")
@@ -11153,19 +11174,271 @@ local function installRodSkinBeauty()
     		end
     	end
 
-    	local emitters, lights, auraEmitters = {}, {}, {}
+    	local emitters, lights = {}, {}
     	for _, d in ipairs(model:GetDescendants()) do
     		if d:IsA("ParticleEmitter") then
     			emitters[#emitters+1] = d
-    			if state.aura and d:IsDescendantOf(state.aura) then auraEmitters[#auraEmitters+1] = d end
     		elseif d:IsA("Light") then lights[#lights+1] = d end
     	end
-    	state.emitters, state.lights, state.auraEmitters = emitters, lights, auraEmitters
-    	applyEmitterState(Config.RodSkinFX)
+    	state.emitters, state.lights = emitters, lights
+    	applyEmitterState()
 
     	return true
     end
 
+
+    ------------------------------------------------------------
+    -- 技能竿克隆适配
+    -- ------------------------------------------------------------
+    -- Wavebreaker / Taiji Nine Palaces / Twin Tiger Hooks / One Hook Dominance 这类技能
+    -- 会把 char.Tool 整根克隆出来当「手里的竿」演动画（克隆体会打 RodSkillVFX 标记）。
+    -- 我们美化后的竿不在 Tool 里，所以技能演的是原竿，还会跟美化竿叠在一起。
+    -- 这里给每个克隆竿焊一份同样的皮肤，并把克隆竿本体藏掉。
+    -- 找竿的「握把」：技能克隆竿经常把 Handle 改名（Twin Tiger Hooks 改成 Handle2），
+    -- 还有的直接用 PrimaryPart。找不到 Handle 就退到 ToolJoint 的 Part1 / 第一个部件。
+    local function findGrip(rod)
+        if not rod then return nil end
+        for _, nm in ipairs({ "Handle", "Handle2" }) do
+            local h = rod:FindFirstChild(nm, true)
+            if h and h:IsA("BasePart") then return h end
+        end
+        local pp = rod.PrimaryPart
+        if pp and pp:IsA("BasePart") then return pp end
+        for _, d in ipairs(rod:GetDescendants()) do
+            if d:IsA("Motor6D") and d.Part1 and d.Part1:IsDescendantOf(rod) then return d.Part1 end
+        end
+        return rod:FindFirstChildWhichIsA("BasePart", true)
+    end
+
+    local function canMirrorSkillRod(m)
+        if not (m and m:IsA("Model")) then return false end
+        local ok, attr = pcall(function() return m:GetAttribute("RodSkillVFX") end)
+        if not (ok and attr) then return false end
+        if not findGrip(m) then return false end
+        return m:FindFirstChild("Stick", true) ~= nil
+    end
+
+    -- 克隆竿里「自己的技能特效」判断：标记必须出现在克隆体内部，
+    -- 而不是挂在克隆竿根上（根上那份是竿身标记）。
+    local function hasSkillVFXMarkerBelow(inst, root)
+        local p = inst
+        for _ = 1, 12 do
+            if not p or p == root then return false end
+            local ok, v = pcall(function() return p:GetAttribute("RodSkillVFX") end)
+            if ok and v then return true end
+            p = p.Parent
+        end
+        return false
+    end
+
+    local function buildSkinCopy()
+        local cfg = getConfig(currentSkin)
+        if not (cfg and cfg.Model) then return nil end
+        local ok, copy = pcall(function() return cfg.Model:Clone() end)
+        if not (ok and copy) then return nil end
+        copy.Name = "__RodSkinSkill"
+        prepare(copy)
+        if cfg.Scale and cfg.Scale > 0 then pcall(function() copy:ScaleTo(cfg.Scale) end) end
+        local mh = copy:FindFirstChild("Handle")
+        if not (mh and mh:IsA("BasePart")) then copy:Destroy(); return nil end
+        copy.PrimaryPart = mh
+        for _, d in ipairs(copy:GetDescendants()) do
+            if d:IsA("BasePart") and d ~= mh then
+                local w = Instance.new("WeldConstraint")
+                w.Part0, w.Part1, w.Parent = mh, d, d
+            end
+        end
+        if cfg.ColorSystem == true then
+            local c = state.nativeColor or state.skinColor
+                or decodeColorString(savedColorString(currentSkin)) or cfg.Color
+            if c then pcall(paint, copy, c) end
+        end
+        -- 皮肤自带粒子跟主竿一样永久关常驻，免得技能瞬间糊成一片
+        for _, d in ipairs(copy:GetDescendants()) do
+            if d:IsA("ParticleEmitter") or d:IsA("Light") then
+                pcall(function() d.Enabled = false end)
+            end
+        end
+        return copy
+    end
+
+    local function updateSkillRodMode()
+        -- 只在「克隆竿在场 + 游戏自己把真竿藏了」时藏主竿：
+        -- 技能演克隆竿时不会两根叠着；也不会因为某些竿本身全身半透明而误判。
+        local anyClone = false
+        for rod, rec in pairs(state.skillRods or {}) do
+            if rod.Parent and rec and rec.model and rec.model.Parent then anyClone = true break end
+        end
+        local any = false
+        if anyClone then
+            local tl = state.tool
+            if tl and tl.Parent then
+                any = true
+                for _, d in ipairs(tl:GetDescendants()) do
+                    if d:IsA("BasePart") and d.Transparency < 0.99 then any = false break end
+                end
+            end
+        end
+        if state.skillRodActive == any then return end
+        state.skillRodActive = any
+        local m = state.model
+        if not m then return end
+        state.skillHidden = state.skillHidden or {}
+        state.skillFx = state.skillFx or {}
+        for _, d in ipairs(m:GetDescendants()) do
+            if d:IsA("BasePart") then
+                if any then
+                    if state.skillHidden[d] == nil then state.skillHidden[d] = d.LocalTransparencyModifier end
+                    pcall(function() d.LocalTransparencyModifier = 1 end)
+                else
+                    local old = state.skillHidden[d]
+                    if old ~= nil then pcall(function() d.LocalTransparencyModifier = old end) end
+                    state.skillHidden[d] = nil
+                end
+            elseif d:IsA("Beam") or isToggleFx(d) then
+                if any then
+                    if state.skillFx[d] == nil then state.skillFx[d] = d.Enabled end
+                    pcall(function() d.Enabled = false end)
+                else
+                    local old = state.skillFx[d]
+                    if old ~= nil then pcall(function() d.Enabled = old end) end
+                    state.skillFx[d] = nil
+                end
+            end
+        end
+    end
+
+    local function attachSkillRod(rod)
+        if not (enabled and state.model and rod and rod.Parent) then return end
+        if state.skillRods[rod] then return end
+        if rod:FindFirstChild("__RodSkinSkill", true) or rod:FindFirstChild("__RodSkin", true) then return end
+        local handle = findGrip(rod)
+        if not (handle and handle:IsA("BasePart")) then return end
+        local copy = buildSkinCopy()
+        if not copy then return end
+        local mh = copy:FindFirstChild("Handle")
+        if not (mh and mh:IsA("BasePart")) then copy:Destroy(); return end
+
+        -- 藏掉克隆竿本体：保留 Attachment / 粒子挂点，技能特效还挂在上面。
+        -- 注意克隆竿自己身上也带 RodSkillVFX 标记，所以这里要判断「标记在克隆体
+        -- 内部」才算技能特效；标记在克隆竿根上，那整根就是竿身，照藏。
+        for _, d in ipairs(rod:GetDescendants()) do
+            if not hasSkillVFXMarkerBelow(d, rod) then
+                if d:IsA("BasePart") then
+                    pcall(function() d.LocalTransparencyModifier = 1 end)
+                elseif d:IsA("Decal") or d:IsA("Texture") then
+                    pcall(function() d.Transparency = 1 end)
+                elseif d:IsA("Beam") or isToggleFx(d) then
+                    pcall(function() d.Enabled = false end)
+                end
+            end
+        end
+
+        copy.Parent = rod
+        local joint = Instance.new("Motor6D")
+        joint.Name = "__RodSkinSkillJoint"
+        joint.Part0, joint.Part1 = handle, mh
+        joint.C0, joint.C1 = CFrame.new(), CFrame.new()
+        joint.Parent = handle
+
+        state.skillRods[rod] = { model = copy, joint = joint }
+        pcall(updateSkillRodMode)
+    end
+
+    -- 技能分身（One Hook Dominance / Sea Pacifying Needle / Demon Mountainbreaker V2）
+    -- 会把整只角色克隆一份丢进 workspace.Trash，再给分身手里焊一份「Tool」——
+    -- 那份是从 char.Tool 克隆出来的原竿，不带头上的 RodSkillVFX 标记，
+    -- 所以只盯角色子级的监听看不到它，分身手里就还是原竿。
+    local function inTempSpace(inst)
+        local p = inst
+        for _ = 1, 12 do
+            if not p then return false end
+            if p.Name == "Trash" and p.Parent == workspace then return true end
+            p = p.Parent
+        end
+        return false
+    end
+
+    -- 分身手里的竿：分身是整只 char 克隆（OneHookDominanceClone / TaijiClone…），
+    -- 游戏再往里塞一个叫 "Tool" 的竿克隆。它不带头上的标记、也不在角色身上，
+    -- 所以按「模型名 Tool + 父级有 Humanoid + 父级不是真玩家/本地角色」来认。
+    local function canMirrorCloneTool(m)
+        if not (m and m:IsA("Model")) then return false end
+        if m.Name ~= "Tool" then return false end
+        if not (findGrip(m) and m:FindFirstChild("Stick")) then return false end
+        local parent = m.Parent
+        if not (parent and parent:IsA("Model")) then return false end
+        if not parent:FindFirstChildOfClass("Humanoid") then return false end
+        local plrs = game:GetService("Players")
+        if plrs:GetPlayerFromCharacter(parent) then return false end
+        if inTempSpace(m) then return true end
+        if parent.Name:find("Clone") then return true end
+        if parent:GetAttribute("RodSkillVFX") then return true end
+        return false
+    end
+
+    -- 最通用的兜底：任何「带 ToolJoint 的竿模型」都当技能克隆竿。
+    -- 不同技能克隆方式五花八门（改名/不带标记/塞到分身里），只认结构最稳：
+    -- 有 Stick、有握把、有 ToolJoint* 的 Motor6D，且不是别人角色手里的竿。
+    local function canMirrorClonedRod(m)
+        if not (m and m:IsA("Model")) then return false end
+        if m == state.tool then return false end
+        -- 必须「自己就直接挂着 Stick / 握把 / ToolJoint」，否则会误把
+        -- 装着 Tool 的整只分身角色当成竿，把分身整个人藏掉
+        if not m:FindFirstChild("Stick") then return false end
+        local grip = m:FindFirstChild("Handle") or m:FindFirstChild("Handle2") or m.PrimaryPart
+        if not (grip and grip:IsA("BasePart")) then return false end
+        local hasJoint = false
+        for _, d in ipairs(m:GetChildren()) do
+            if d:IsA("Motor6D") and tostring(d.Name):sub(1, 9) == "ToolJoint" then
+                hasJoint = true
+                break
+            end
+        end
+        if not hasJoint then return false end
+        local plrs = game:GetService("Players")
+        local owner = m.Parent
+        local p = owner and plrs:GetPlayerFromCharacter(owner)
+        if p and p ~= plrs.LocalPlayer then return false end
+        if m:FindFirstChild("__RodSkin", true) or m:FindFirstChild("__RodSkinSkill", true) then
+            return false
+        end
+        return true
+    end
+
+    local function tryAttachSkillRod(d)
+        if not enabled then return end
+        local ok, can = pcall(canMirrorSkillRod, d)
+        if ok and can then
+            task.defer(function() pcall(attachSkillRod, d) end)
+            return
+        end
+        local ok2, can2 = pcall(canMirrorCloneTool, d)
+        if ok2 and can2 then
+            task.defer(function() pcall(attachSkillRod, d) end)
+            return
+        end
+        local ok3, can3 = pcall(canMirrorClonedRod, d)
+        if ok3 and can3 then
+            task.defer(function() pcall(attachSkillRod, d) end)
+        end
+    end
+
+    watchSkillRods = function(char)
+        if state.skillConn then pcall(function() state.skillConn:Disconnect() end) end
+        state.skillConn = char.DescendantAdded:Connect(function(d)
+            if not enabled then return end
+            pcall(tryAttachSkillRod, d)
+        end)
+    end
+
+    watchWorldRods = function()
+        if state.wsRodConn then return end
+        state.wsRodConn = Workspace.DescendantAdded:Connect(function(d)
+            if not enabled then return end
+            if d:IsA("Model") then pcall(tryAttachSkillRod, d) end
+        end)
+    end
 
     ------------------------------------------------------------
     -- 背包/图鉴镜像
@@ -11312,10 +11585,66 @@ local function installRodSkinBeauty()
 
     	if state.tipAtt and state.tipAtt.Parent then
     		for _, d in ipairs(tool:GetDescendants()) do
-    			if d:IsA("Beam") and d.Attachment0 and d.Attachment0:IsDescendantOf(tool) then
-    				if d.Attachment0 ~= state.tipAtt then pcall(function() d.Attachment0 = state.tipAtt end) end
+    			if d:IsA("Beam") and d.Attachment0 and d.Attachment1 and isLineBeam(d) then
+    				if d.Attachment0 ~= state.tipAtt and d.Attachment0:IsDescendantOf(tool) then
+    					pcall(function() d.Attachment0 = state.tipAtt end)
+    				end
     			end
     		end
+    	end
+
+    	-- 技能竿克隆：清理已销毁的记录；真竿被游戏藏起来时，把手上这把美化竿也藏掉
+    	-- （技能会演克隆竿；我们不藏就会两根竿叠在一起）
+    	if state.skillRods then
+    		for rod, rec in pairs(state.skillRods) do
+    			if not (rod.Parent and rec and rec.model and rec.model.Parent) then
+    				-- 克隆竿被技能清掉了：把焊在它上面的皮肤副本和关节一起收掉，别留孤儿实例
+    				if rec then
+    					if rec.joint then pcall(function() rec.joint:Destroy() end) end
+    					if rec.model and rec.model.Parent then pcall(function() rec.model:Destroy() end) end
+    				end
+    				state.skillRods[rod] = nil
+    			end
+    		end
+    		pcall(updateSkillRodMode)
+    	end
+    	-- 兜底：DescendantAdded 万一没挂上（重生/重注入/先 Parent 后 SetAttribute），
+    	-- 每帧扫一遍角色直接子级，看到 RodSkillVFX 的竿克隆补挂皮肤。
+    	if not state.skillConn and state.char then pcall(watchSkillRods, state.char) end
+    	if state.char then
+    		for _, c in ipairs(char:GetChildren()) do
+    			if not state.skillRods[c] then
+    				local okCan, can = pcall(canMirrorSkillRod, c)
+    				if okCan and can then pcall(attachSkillRod, c) end
+    			end
+    		end
+    	end
+    	-- 分身竿兜底：每秒扫一次顶层的分身模型（名字带 Clone 的 / Trash 里的），
+    	-- 把里面的 "Tool" 竿克隆补上美化
+    	state.worldAcc = (state.worldAcc or 0) + 0.06
+    	if state.worldAcc >= 1 then
+    		state.worldAcc = 0
+    		local function scanCloneRoot(root)
+    			if not root then return end
+    			for _, ch2 in ipairs(root:GetChildren()) do
+    				if ch2:IsA("Model") and not state.skillRods[ch2] then
+    					local nm = ch2.Name
+    					if nm == "Tool" then
+    						local okCan, can = pcall(canMirrorCloneTool, ch2)
+    						if okCan and can then pcall(attachSkillRod, ch2) end
+    					elseif #ch2:GetChildren() > 0 then
+    						for _, sub in ipairs(ch2:GetChildren()) do
+    							if sub.Name == "Tool" and not state.skillRods[sub] then
+    								local okCan, can = pcall(canMirrorCloneTool, sub)
+    								if okCan and can then pcall(attachSkillRod, sub) end
+    							end
+    						end
+    					end
+    				end
+    			end
+    		end
+    		scanCloneRoot(Workspace)
+    		scanCloneRoot(Workspace:FindFirstChild("Trash"))
     	end
 
     	-- 背包镜像（0.5 秒一次）
@@ -11331,14 +11660,6 @@ local function installRodSkinBeauty()
     	local fishing = char:GetAttribute("Fishing") == true
     	local minigame = char:GetAttribute("Minigame") == true
     	local throwing = char:GetAttribute("CDForTheNextThrow") == true
-
-    	-- 气场：进小游戏时开启，**战斗一结束立刻关**（原来会多留 2.5 秒）
-    	if minigame then
-    		state.auraUntil = now
-    		setAura(true)
-    	elseif now > (state.auraUntil or 0) then
-    		setAura(false)
-    	end
 
     	-- 中鱼结算：小游戏结束的瞬间放这套皮肤的粒子爆发 + 音效
     	if state.wasMinigame and not minigame then
@@ -11364,7 +11685,21 @@ local function installRodSkinBeauty()
     	end
     	state.wasMinigame = minigame
 
-    	if (fishing or throwing) and not state.wasCast then
+    	-- 外部动作（技能/战斗）在播：让开，别用 Action4 待机去抢权重
+    	local extPlaying = false
+    	if state.ext then
+    		for tr, t0 in pairs(state.ext) do
+    			-- 45 秒兜底：技能异常没停掉动画轨道时，别让我们的待机永远被压着
+    			if tr.IsPlaying and (now - (t0 or now)) < 45 then
+    				extPlaying = true
+    			else
+    				state.ext[tr] = nil
+    			end
+    		end
+    	end
+    	if extPlaying and state.mode ~= nil then stopTracks() end
+
+    	if not extPlaying and (fishing or throwing) and not state.wasCast then
     		if state.tracks.Throw then
     			state.tracks.Throw.Looped = false
     			pcall(function() state.tracks.Throw:Play(0.05) end)
@@ -11376,7 +11711,9 @@ local function installRodSkinBeauty()
     	end
     	state.wasCast = fishing or throwing
 
-    	if moving then
+    	if extPlaying then
+    		-- 技能动作交给游戏自己播完，这里什么都不做
+    	elseif moving then
     		if state.mode ~= nil then stopTracks() end
     	elseif state.mode == "Throwing" and now < (state.lockUntil or 0) then
     		-- 抛竿进行中，不切换
@@ -11397,6 +11734,7 @@ local function installRodSkinBeauty()
     	end
     	despawn()
     	state.char = char
+    	pcall(watchSkillRods, char)
 
     	-- 装载时清掉所有残留的竿动画轨道
     	local hum0 = char:FindFirstChildOfClass("Humanoid")
@@ -11618,16 +11956,6 @@ local function installRodSkinBeauty()
 
     getgenv().HW_RodSkin = {
         Enable = function(v) if v then Start() else Stop() end end,
-        -- 皮肤粒子总开关（true = 恢复皮肤自带的常驻闪电/星光）
-        SetFX = function(on)
-            Config.RodSkinFX = on and true or false
-            applyEmitterState(Config.RodSkinFX)
-        end,
-        -- 中鱼气场开关
-        SetAura = function(on)
-            Config.RodSkinAura = on and true or false
-            if not Config.RodSkinAura then setAura(false) end
-        end,
         Set = set,
         List = listSkins,
         Info = getConfig,
@@ -12011,23 +12339,16 @@ do
     R.LoadCache()
 end
 
--- 用 pcall 包住，出错也不至于把后面的固定条面板一起带走；错因会进控制台
-local okRodSkin, errRodSkin = pcall(installRodSkinBeauty)
-if not okRodSkin then
-    warn("[HW] 鱼竿美化引擎注册失败: " .. tostring(errRodSkin))
-end
-local okItems, errItems = pcall(installLocalItemsPage)
-if not okItems then
-    warn("[HW] 本地物品页构建失败: " .. tostring(errItems))
-end
+-- 用 pcall 包住，出错也不至于把后面的固定条面板一起带走（静默：不再往控制台打报错）
+pcall(installRodSkinBeauty)
+pcall(installLocalItemsPage)
 
 -- 美化固定条：等所有页面都建好后挂到「本地物品」页尾（LayoutOrder 900，永远排最后）
 pcall(function()
     local pageBar = tabFrames and tabFrames["本地物品"]
     local bs = getgenv().HW_BarSkin
     if bs and pageBar and type(bs.BuildUI) == "function" then
-        local okB, errB = pcall(bs.BuildUI, { page = pageBar, order = 900, notify = ShowNotification, onSave = SaveProfile })
-        if not okB then warn("[HW] 固定条美化 UI 失败: " .. tostring(errB)) end
+        pcall(bs.BuildUI, { page = pageBar, order = 900, notify = ShowNotification, onSave = SaveProfile })
     end
 end)
 
